@@ -16,6 +16,7 @@ int      numNotes;
 int      stepNumber;
 bool     trigOut;
 uint16_t cvValue;
+uint16_t lengthCv;
 
 int  menuPos;
 bool inSubMenu;
@@ -58,6 +59,11 @@ uint16_t CvForNote(int note)
     return (uint16_t)round(note * (4096.0 / (double)numNotes));
 }
 
+uint16_t CvForLength(int length)
+{
+    return (uint16_t)round((length - 1) * (4096.0 / 15.0));
+}
+
 void IncreaseNoteLength(int note)
 {
     if(note >= numNotes - 1)
@@ -96,6 +102,7 @@ int main(void)
     stepNumber = 0;
     trigOut    = false;
     cvValue    = 0;
+    lengthCv   = 0;
     menuPos    = 0;
     inSubMenu  = false;
     numNotes   = kSeqLength;
@@ -158,8 +165,10 @@ void UpdateControls()
         stepNumber %= kSeqLength;
         if(IsNoteStart(stepNumber))
         {
-            trigOut = true;
-            cvValue = CvForNote(BeatToNote(stepNumber));
+            trigOut  = true;
+            int note = BeatToNote(stepNumber);
+            cvValue  = CvForNote(note);
+            lengthCv = CvForLength(noteLength[note]);
         }
     }
 }
@@ -201,7 +210,7 @@ void UpdateOled()
 void UpdateOutputs()
 {
     patch.seed.dac.WriteValue(DacHandle::Channel::ONE, cvValue);
-    patch.seed.dac.WriteValue(DacHandle::Channel::TWO, cvValue);
+    patch.seed.dac.WriteValue(DacHandle::Channel::TWO, lengthCv);
 
     patch.gate_output.Write(trigOut);
     trigOut = false;
