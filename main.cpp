@@ -99,17 +99,14 @@ void UpdateOled()
     {
         sprintf(cstr, "%d", values[i]);
         patch.display.SetCursor(i * 25, 10);
-        patch.display.WriteString(cstr, Font_7x10, true);
+        bool invert = menuPos != i; //invert cursor
+        patch.display.WriteString(cstr, Font_7x10, invert);
 
         str = trigs[i % 5] ? "X" : "O";
         patch.display.SetCursor(i * 25, 30);
-        patch.display.WriteString(cstr, Font_7x10, true);
+        invert = menuPos != i + 5;
+        patch.display.WriteString(cstr, Font_7x10, invert);
     }
-
-    //cursor
-    str = inSubMenu ? "@" : "o";
-    patch.display.SetCursor((menuPos % 5) * 25, (menuPos > 4) * 20);
-    patch.display.WriteString(cstr, Font_7x10, true);
 
     patch.display.Update();
 }
