@@ -15,6 +15,7 @@ int      noteLength[kSeqLength];
 int      numNotes;
 int      stepNumber;
 bool     trigOut;
+bool     pendingReset;
 uint16_t cvValue;
 uint16_t lengthCv;
 
@@ -95,12 +96,28 @@ void DecreaseNoteLength(int note)
     numNotes++;
 }
 
+void TriggerNoteAtStep()
+{
+    trigOut  = true;
+    int note = BeatToNote(stepNumber);
+    cvValue  = CvForNote(note);
+    lengthCv = CvForLength(noteLength[note]);
+}
+
+void ResetToFirstStep()
+{
+    stepNumber   = 0;
+    pendingReset = false;
+    TriggerNoteAtStep();
+}
+
 int main(void)
 {
     patch.Init(); // Initialize hardware (daisy seed, and patch)
 
-    stepNumber = 0;
-    trigOut    = false;
+    stepNumber   = 0;
+    trigOut      = false;
+    pendingReset = false;
     cvValue    = 0;
     lengthCv   = 0;
     menuPos    = 0;
@@ -159,16 +176,31 @@ void UpdateControls()
         inSubMenu = patch.encoder.RisingEdge() ? false : true;
     }
 
-    if(patch.gate_input[0].Trig() || patch.gate_input[1].Trig())
+    bool clock = patch.gate_input[0].Trig();
+    bool reset = patch.gate_input[1].Trig();
+
+    if(reset && clock)
     {
-        stepNumber++;
-        stepNumber %= kSeqLength;
-        if(IsNoteStart(stepNumber))
+        ResetToFirstStep();
+    }
+    else if(reset)
+    {
+        pendingReset = true;
+    }
+    else if(clock)
+    {
+        if(pendingReset)
         {
-            trigOut  = true;
-            int note = BeatToNote(stepNumber);
-            cvValue  = CvForNote(note);
-            lengthCv = CvForLength(noteLength[note]);
+            ResetToFirstStep();
+        }
+        else
+        {
+            stepNumber++;
+            stepNumber %= kSeqLength;
+            if(IsNoteStart(stepNumber))
+            {
+                TriggerNoteAtStep();
+            }
         }
     }
 }
