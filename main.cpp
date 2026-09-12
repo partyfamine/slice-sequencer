@@ -1,16 +1,21 @@
 #include "daisysp.h"
 #include "daisy_patch.h"
-#include <string>
+#include <cmath>
 
 using namespace daisy;
 using namespace daisysp;
 
 DaisyPatch patch;
 
-int  values[5];
-bool trigs[5];
-int  stepNumber;
-bool trigOut;
+static const int  kSeqLength = 16;
+static const int  kFontWidth = 7;
+static const char kHex[]     = "0123456789ABCDEF";
+
+int      noteLength[kSeqLength];
+int      numNotes;
+int      stepNumber;
+bool     trigOut;
+uint16_t cvValue;
 
 int  menuPos;
 bool inSubMenu;
@@ -19,20 +24,85 @@ void UpdateControls();
 void UpdateOled();
 void UpdateOutputs();
 
+int NoteStartBeat(int note)
+{
+    int pos = 0;
+    for(int n = 0; n < note; n++)
+    {
+        pos += noteLength[n];
+    }
+    return pos;
+}
+
+int BeatToNote(int beat)
+{
+    int pos = 0;
+    for(int n = 0; n < numNotes; n++)
+    {
+        pos += noteLength[n];
+        if(beat < pos)
+        {
+            return n;
+        }
+    }
+    return numNotes - 1;
+}
+
+bool IsNoteStart(int beat)
+{
+    return beat == NoteStartBeat(BeatToNote(beat));
+}
+
+uint16_t CvForNote(int note)
+{
+    return (uint16_t)round(note * (4096.0 / (double)numNotes));
+}
+
+void IncreaseNoteLength(int note)
+{
+    if(note >= numNotes - 1)
+    {
+        return;
+    }
+
+    int last = numNotes - 1;
+    if(noteLength[last] > 1)
+    {
+        noteLength[last]--;
+    }
+    else
+    {
+        numNotes--;
+    }
+    noteLength[note]++;
+}
+
+void DecreaseNoteLength(int note)
+{
+    if(noteLength[note] <= 1)
+    {
+        return;
+    }
+
+    noteLength[note]--;
+    noteLength[numNotes] = 1;
+    numNotes++;
+}
+
 int main(void)
 {
     patch.Init(); // Initialize hardware (daisy seed, and patch)
 
-    //init global vars
     stepNumber = 0;
     trigOut    = false;
+    cvValue    = 0;
     menuPos    = 0;
     inSubMenu  = false;
+    numNotes   = kSeqLength;
 
-    for(int i = 0; i < 5; i++)
+    for(int i = 0; i < kSeqLength; i++)
     {
-        values[i] = 0.f;
-        trigs[i]  = false;
+        noteLength[i] = 1;
     }
 
     patch.StartAdc();
@@ -49,39 +119,48 @@ void UpdateControls()
     patch.ProcessAnalogControls();
     patch.ProcessDigitalControls();
 
-    //encoder
-    //can we simplify the menu logic?
     if(!inSubMenu)
     {
         menuPos += patch.encoder.Increment();
-        menuPos = (menuPos % 10 + 10) % 10;
+        menuPos = (menuPos % kSeqLength + kSeqLength) % kSeqLength;
 
-        if(menuPos < 5)
+        if(patch.encoder.RisingEdge())
         {
-            inSubMenu = patch.encoder.RisingEdge() ? true : false;
-        }
-        else
-        {
-            trigs[menuPos % 5] = patch.encoder.RisingEdge()
-                                     ? !trigs[menuPos % 5]
-                                     : trigs[menuPos % 5];
+            inSubMenu = true;
+            menuPos   = NoteStartBeat(BeatToNote(menuPos));
         }
     }
-
     else
     {
-        values[menuPos] += patch.encoder.Increment();
-        values[menuPos] = values[menuPos] < 0.f ? 0.f : values[menuPos];
-        values[menuPos] = values[menuPos] > 60.f ? 60.f : values[menuPos];
-        inSubMenu       = patch.encoder.RisingEdge() ? false : true;
+        int note = BeatToNote(menuPos);
+        int inc  = patch.encoder.Increment();
+        if(inc > 0)
+        {
+            for(int i = 0; i < inc; i++)
+            {
+                IncreaseNoteLength(note);
+            }
+        }
+        else if(inc < 0)
+        {
+            for(int i = 0; i < -inc; i++)
+            {
+                DecreaseNoteLength(note);
+            }
+        }
+
+        inSubMenu = patch.encoder.RisingEdge() ? false : true;
     }
 
-    //gate in
     if(patch.gate_input[0].Trig() || patch.gate_input[1].Trig())
     {
         stepNumber++;
-        stepNumber %= 5;
-        trigOut = trigs[stepNumber];
+        stepNumber %= kSeqLength;
+        if(IsNoteStart(stepNumber))
+        {
+            trigOut = true;
+            cvValue = CvForNote(BeatToNote(stepNumber));
+        }
     }
 }
 
@@ -89,34 +168,40 @@ void UpdateOled()
 {
     patch.display.Fill(false);
 
-    std::string str  = "!";
-    char*       cstr = &str[0];
-    patch.display.SetCursor(25 * stepNumber, 45);
-    patch.display.WriteString(cstr, Font_7x10, true);
-
-    //values and trigs
-    for(int i = 0; i < 5; i++)
+    char seq[kSeqLength + 2];
+    seq[0] = ' ';
+    int  i = 1;
+    for(int n = 0; n < numNotes; n++)
     {
-        sprintf(cstr, "%d", values[i]);
-        patch.display.SetCursor(i * 25, 10);
-        bool invert = menuPos != i; //invert cursor
-        patch.display.WriteString(cstr, Font_7x10, invert);
-
-        str = trigs[i % 5] ? "X" : "O";
-        patch.display.SetCursor(i * 25, 30);
-        invert = menuPos != i + 5;
-        patch.display.WriteString(cstr, Font_7x10, invert);
+        seq[i++] = kHex[n];
+        for(int r = 1; r < noteLength[n]; r++)
+        {
+            seq[i++] = '-';
+        }
     }
+    seq[i] = '\0';
+
+    char cstr[2];
+    cstr[1] = '\0';
+    for(int b = 0; b < kSeqLength + 1; b++)
+    {
+        cstr[0] = seq[b];
+        patch.display.SetCursor(b * kFontWidth, 10);
+        bool on = (b == 0) ? true : (menuPos != b - 1);
+        patch.display.WriteString(cstr, Font_7x10, on);
+    }
+
+    cstr[0] = '!';
+    patch.display.SetCursor((stepNumber + 1) * kFontWidth, 45);
+    patch.display.WriteString(cstr, Font_7x10, true);
 
     patch.display.Update();
 }
 
 void UpdateOutputs()
 {
-    patch.seed.dac.WriteValue(DacHandle::Channel::ONE,
-                              round((values[stepNumber] / 12.f) * 819.2f));
-    patch.seed.dac.WriteValue(DacHandle::Channel::TWO,
-                              round((values[stepNumber] / 12.f) * 819.2f));
+    patch.seed.dac.WriteValue(DacHandle::Channel::ONE, cvValue);
+    patch.seed.dac.WriteValue(DacHandle::Channel::TWO, cvValue);
 
     patch.gate_output.Write(trigOut);
     trigOut = false;
