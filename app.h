@@ -66,6 +66,7 @@ void ApplyTotalSteps(int newTotal);
 void IncreaseNoteLength(int note);
 void DecreaseNoteLength(int note);
 void TriggerNoteAtStep();
+void TriggerNoteAtStep(bool fireGate);
 void ResetToFirstStep();
 
 void InitCvChannels();

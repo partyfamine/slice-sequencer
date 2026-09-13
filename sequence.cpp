@@ -548,8 +548,12 @@ void DecreaseNoteLength(int note)
 
 void TriggerNoteAtStep()
 {
+    TriggerNoteAtStep(true);
+}
+
+void TriggerNoteAtStep(bool fireGate)
+{
     RebuildModifiedSequence();
-    trigOut = true;
     if(modNumNotes <= 0)
     {
         return;
@@ -558,6 +562,10 @@ void TriggerNoteAtStep()
     int origId  = modNoteOrder[modNote];
     cvValue     = CvForNote(origId);
     lengthCv    = CvForLength(modNoteLength[modNote]);
+    if(fireGate)
+    {
+        trigOut = true;
+    }
 }
 
 void ResetToFirstStep()

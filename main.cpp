@@ -64,15 +64,9 @@ void UpdateControls()
         MainMenuProcessEncoder();
     }
 
-    // Keep the modified view / playback in sync with live CV amounts.
+    // Update the modified sequence for the display immediately.
+    // CV/gate outputs only change on the next clocked step below.
     RebuildModifiedSequence();
-    if(modNumNotes > 0 && totalSteps > 0)
-    {
-        int modNote = ModBeatToNote(stepNumber);
-        int origId  = modNoteOrder[modNote];
-        cvValue     = CvForNote(origId);
-        lengthCv    = CvForLength(modNoteLength[modNote]);
-    }
 
     bool clock = patch.gate_input[0].Trig();
     bool reset = patch.gate_input[1].Trig();
@@ -95,10 +89,7 @@ void UpdateControls()
         {
             stepNumber++;
             stepNumber %= totalSteps;
-            if(ModIsNoteStart(stepNumber))
-            {
-                TriggerNoteAtStep();
-            }
+            TriggerNoteAtStep(ModIsNoteStart(stepNumber));
         }
     }
 }
