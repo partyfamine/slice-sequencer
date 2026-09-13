@@ -1,7 +1,7 @@
 TARGET = slice-sequencer
 
 # Sources
-CPP_SOURCES = ./main.cpp ./sequence.cpp ./oled_ui.cpp ./main_menu.cpp ./edit_sequence.cpp
+CPP_SOURCES = ./main.cpp ./sequence.cpp ./oled_ui.cpp ./main_menu.cpp ./edit_sequence.cpp ./cv_menu.cpp
 
 # Library Locations
 LIBDAISY_DIR = ./libDaisy

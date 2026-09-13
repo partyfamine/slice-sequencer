@@ -3,12 +3,14 @@
 #include "app.h"
 #include "main_menu.h"
 #include "edit_sequence.h"
+#include "cv_menu.h"
 
 using namespace daisy;
 using namespace daisysp;
 
 DaisyPatch patch;
 UiScreen   uiScreen;
+int        activeCvIndex;
 
 bool     trigOut;
 bool     pendingReset;
@@ -23,15 +25,17 @@ int main(void)
 {
     patch.Init();
 
-    uiScreen     = UI_MAIN_MENU;
-    trigOut      = false;
-    pendingReset = false;
-    cvValue      = 0;
-    lengthCv     = 0;
+    uiScreen      = UI_MAIN_MENU;
+    activeCvIndex = 0;
+    trigOut       = false;
+    pendingReset  = false;
+    cvValue       = 0;
+    lengthCv      = 0;
 
     InitSequence();
     MainMenuInit();
     EditSequenceInit();
+    CvMenuInit();
 
     patch.StartAdc();
     while(1)
@@ -51,9 +55,23 @@ void UpdateControls()
     {
         EditSequenceProcessEncoder();
     }
+    else if(uiScreen == UI_CV_MENU)
+    {
+        CvMenuProcessEncoder();
+    }
     else
     {
         MainMenuProcessEncoder();
+    }
+
+    // Keep the modified view / playback in sync with live CV amounts.
+    RebuildModifiedSequence();
+    if(modNumNotes > 0 && totalSteps > 0)
+    {
+        int modNote = ModBeatToNote(stepNumber);
+        int origId  = modNoteOrder[modNote];
+        cvValue     = CvForNote(origId);
+        lengthCv    = CvForLength(modNoteLength[modNote]);
     }
 
     bool clock = patch.gate_input[0].Trig();
@@ -77,7 +95,7 @@ void UpdateControls()
         {
             stepNumber++;
             stepNumber %= totalSteps;
-            if(IsNoteStart(stepNumber))
+            if(ModIsNoteStart(stepNumber))
             {
                 TriggerNoteAtStep();
             }
@@ -92,6 +110,10 @@ void UpdateOled()
     if(uiScreen == UI_EDIT_SEQUENCE)
     {
         EditSequenceDraw();
+    }
+    else if(uiScreen == UI_CV_MENU)
+    {
+        CvMenuDraw();
     }
     else
     {
