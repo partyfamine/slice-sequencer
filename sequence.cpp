@@ -220,6 +220,110 @@ static void MarkSegmentNotes(int position, int size, bool* inSeg)
     }
 }
 
+static int StepsAvailableFromNote(int note)
+{
+    int steps = 0;
+    for(int n = note; n < numNotes; n++)
+    {
+        steps += noteLength[n];
+    }
+    return steps;
+}
+
+static int ClampCvAmountMoves(float amount, int maxDown, int maxUp)
+{
+    if(amount < 0.f)
+    {
+        amount = 0.f;
+    }
+    if(amount > 1.f)
+    {
+        amount = 1.f;
+    }
+
+    if(amount < 0.5f && maxDown > 0)
+    {
+        float t = (0.5f - amount) / 0.5f;
+        return -(int)roundf(t * (float)maxDown);
+    }
+    if(amount > 0.5f && maxUp > 0)
+    {
+        float t = (amount - 0.5f) / 0.5f;
+        return (int)roundf(t * (float)maxUp);
+    }
+    return 0;
+}
+
+static int TransposeOffset(int position, int size, float amount)
+{
+    int startBeat, endBeat;
+    GetSegmentRange(position, size, &startBeat, &endBeat);
+    int segmentSteps = endBeat - startBeat;
+    if(segmentSteps <= 0)
+    {
+        return 0;
+    }
+
+    int maxDown = position;
+    int maxUp   = 0;
+    for(int d = 0; position + d < numNotes; d++)
+    {
+        if(StepsAvailableFromNote(position + d) >= segmentSteps)
+        {
+            maxUp = d;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return ClampCvAmountMoves(amount, maxDown, maxUp);
+}
+
+static int FillFromOriginal(int sourceNote,
+                            int steps,
+                            int* outIds,
+                            int* outLens)
+{
+    if(steps <= 0 || numNotes <= 0)
+    {
+        return 0;
+    }
+    if(sourceNote < 0)
+    {
+        sourceNote = 0;
+    }
+    if(sourceNote >= numNotes)
+    {
+        sourceNote = numNotes - 1;
+    }
+
+    // If this start can't supply enough steps, walk back until it can (or to 0).
+    while(sourceNote > 0 && StepsAvailableFromNote(sourceNote) < steps)
+    {
+        sourceNote--;
+    }
+
+    int outCount  = 0;
+    int remaining = steps;
+    int n         = sourceNote;
+    while(remaining > 0 && n < numNotes)
+    {
+        int take = noteLength[n];
+        if(take > remaining)
+        {
+            take = remaining;
+        }
+        outIds[outCount]  = n;
+        outLens[outCount] = take;
+        outCount++;
+        remaining -= take;
+        n++;
+    }
+    return outCount;
+}
+
 static int OtherSegmentId(int noteId, const bool segNotes[4][kSeqLength], int selfCv)
 {
     for(int c = 0; c < 4; c++)
@@ -236,17 +340,9 @@ static int OtherSegmentId(int noteId, const bool segNotes[4][kSeqLength], int se
     return -1;
 }
 
-void RebuildModifiedSequence()
+static void ApplyShifts(int* order, int* lengths, int* countInOut)
 {
-    int order[kSeqLength];
-    int lengths[kSeqLength];
-    int count = numNotes;
-
-    for(int i = 0; i < numNotes; i++)
-    {
-        order[i]   = i;
-        lengths[i] = noteLength[i];
-    }
+    int count = *countInOut;
 
     bool segNotes[4][kSeqLength];
     for(int c = 0; c < 4; c++)
@@ -288,7 +384,6 @@ void RebuildModifiedSequence()
             continue;
         }
 
-        // Unit boundary ends for notes before / after the block.
         int leftEnds[kSeqLength];
         int leftCount = 0;
         for(int i = 0; i < blockStart;)
@@ -324,26 +419,8 @@ void RebuildModifiedSequence()
         }
 
         float amount = patch.GetKnobValue((daisy::DaisyPatch::Ctrl)c);
-        if(amount < 0.f)
-        {
-            amount = 0.f;
-        }
-        if(amount > 1.f)
-        {
-            amount = 1.f;
-        }
-
-        int moves = 0;
-        if(amount < 0.5f && leftCount > 0)
-        {
-            float t = (0.5f - amount) / 0.5f;
-            moves   = -(int)roundf(t * (float)leftCount);
-        }
-        else if(amount > 0.5f && rightCount > 0)
-        {
-            float t = (amount - 0.5f) / 0.5f;
-            moves   = (int)roundf(t * (float)rightCount);
-        }
+        int   moves
+            = ClampCvAmountMoves(amount, leftCount, rightCount);
         if(moves == 0)
         {
             continue;
@@ -436,6 +513,108 @@ void RebuildModifiedSequence()
             lengths[k] = newLens[k];
         }
     }
+
+    *countInOut = count;
+}
+
+static void ApplyTransposes(int* order, int* lengths, int* countInOut)
+{
+    int count = *countInOut;
+    int originTag[kSeqLength];
+    for(int i = 0; i < count; i++)
+    {
+        originTag[i] = order[i];
+    }
+
+    for(int c = 0; c < 4; c++)
+    {
+        if(cvChannels[c].type != CV_TYPE_TRANSPOSE || count <= 0)
+        {
+            continue;
+        }
+
+        bool inSeg[kSeqLength];
+        MarkSegmentNotes(
+            cvChannels[c].position, cvChannels[c].size, inSeg);
+
+        float amount = patch.GetKnobValue((daisy::DaisyPatch::Ctrl)c);
+        int   offset = TransposeOffset(
+            cvChannels[c].position, cvChannels[c].size, amount);
+        if(offset == 0)
+        {
+            continue;
+        }
+
+        int newOrder[kSeqLength];
+        int newLens[kSeqLength];
+        int newTags[kSeqLength];
+        int out = 0;
+        int i   = 0;
+        while(i < count)
+        {
+            int tag = originTag[i];
+            if(tag < 0 || !inSeg[tag])
+            {
+                newOrder[out] = order[i];
+                newLens[out]  = lengths[i];
+                newTags[out]  = originTag[i];
+                out++;
+                i++;
+                continue;
+            }
+
+            int runFirst = tag;
+            int runSteps = 0;
+            while(i < count)
+            {
+                tag = originTag[i];
+                if(tag < 0 || !inSeg[tag])
+                {
+                    break;
+                }
+                runSteps += lengths[i];
+                i++;
+            }
+
+            int fillIds[kSeqLength];
+            int fillLens[kSeqLength];
+            int source = runFirst + offset;
+            int filled = FillFromOriginal(source, runSteps, fillIds, fillLens);
+            for(int f = 0; f < filled; f++)
+            {
+                newOrder[out] = fillIds[f];
+                newLens[out]  = fillLens[f];
+                newTags[out]  = -1;
+                out++;
+            }
+        }
+
+        count = out;
+        for(int k = 0; k < count; k++)
+        {
+            order[k]     = newOrder[k];
+            lengths[k]   = newLens[k];
+            originTag[k] = newTags[k];
+        }
+    }
+
+    *countInOut = count;
+}
+
+void RebuildModifiedSequence()
+{
+    int order[kSeqLength];
+    int lengths[kSeqLength];
+    int count = numNotes;
+
+    for(int i = 0; i < numNotes; i++)
+    {
+        order[i]   = i;
+        lengths[i] = noteLength[i];
+    }
+
+    ApplyShifts(order, lengths, &count);
+    ApplyTransposes(order, lengths, &count);
 
     modNumNotes = count;
     for(int i = 0; i < count; i++)
