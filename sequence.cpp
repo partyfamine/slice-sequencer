@@ -1,5 +1,6 @@
 #include "app.h"
 #include <cmath>
+#include <stdint.h>
 
 int noteLength[kSeqLength];
 int numNotes;
@@ -340,13 +341,16 @@ static int OtherSegmentId(int noteId, const bool segNotes[4][kSeqLength], int se
     return -1;
 }
 
-static void ApplyShifts(int* order, int* lengths, int* countInOut)
+static bool cvModified[4];
+
+static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countInOut)
 {
     int count = *countInOut;
 
     bool segNotes[4][kSeqLength];
     for(int c = 0; c < 4; c++)
     {
+        cvModified[c] = false;
         for(int n = 0; n < kSeqLength; n++)
         {
             segNotes[c][n] = false;
@@ -419,20 +423,22 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
         }
 
         float amount = patch.GetKnobValue((daisy::DaisyPatch::Ctrl)c);
-        int   moves
-            = ClampCvAmountMoves(amount, leftCount, rightCount);
+        int   moves  = ClampCvAmountMoves(amount, leftCount, rightCount);
         if(moves == 0)
         {
             continue;
         }
+        cvModified[c] = true;
 
         int blockLen = blockEnd - blockStart + 1;
         int blockNotes[kSeqLength];
         int blockLens[kSeqLength];
+        uint8_t blockFlags[kSeqLength];
         for(int b = 0; b < blockLen; b++)
         {
             blockNotes[b] = order[blockStart + b];
             blockLens[b]  = lengths[blockStart + b];
+            blockFlags[b] = segFlags[blockStart + b];
         }
 
         int destUnit = leftCount + moves;
@@ -445,11 +451,12 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
             destUnit = leftCount + rightCount;
         }
 
-        int newOrder[kSeqLength];
-        int newLens[kSeqLength];
-        int out      = 0;
-        int unitIdx  = 0;
-        int inserted = 0;
+        int     newOrder[kSeqLength];
+        int     newLens[kSeqLength];
+        uint8_t newFlags[kSeqLength];
+        int     out      = 0;
+        int     unitIdx  = 0;
+        int     inserted = 0;
 
         int leftCursor = 0;
         for(int u = 0; u < leftCount; u++)
@@ -460,6 +467,7 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
                 {
                     newOrder[out] = blockNotes[b];
                     newLens[out]  = blockLens[b];
+                    newFlags[out] = blockFlags[b];
                     out++;
                 }
                 inserted = 1;
@@ -468,6 +476,7 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
             {
                 newOrder[out] = order[k];
                 newLens[out]  = lengths[k];
+                newFlags[out] = segFlags[k];
                 out++;
             }
             leftCursor = leftEnds[u];
@@ -483,6 +492,7 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
                 {
                     newOrder[out] = blockNotes[b];
                     newLens[out]  = blockLens[b];
+                    newFlags[out] = blockFlags[b];
                     out++;
                 }
                 inserted = 1;
@@ -491,6 +501,7 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
             {
                 newOrder[out] = order[k];
                 newLens[out]  = lengths[k];
+                newFlags[out] = segFlags[k];
                 out++;
             }
             rightCursor = rightEnds[u];
@@ -503,21 +514,26 @@ static void ApplyShifts(int* order, int* lengths, int* countInOut)
             {
                 newOrder[out] = blockNotes[b];
                 newLens[out]  = blockLens[b];
+                newFlags[out] = blockFlags[b];
                 out++;
             }
         }
 
         for(int k = 0; k < count; k++)
         {
-            order[k]   = newOrder[k];
-            lengths[k] = newLens[k];
+            order[k]    = newOrder[k];
+            lengths[k]  = newLens[k];
+            segFlags[k] = newFlags[k];
         }
     }
 
     *countInOut = count;
 }
 
-static void ApplyTransposes(int* order, int* lengths, int* countInOut)
+static void ApplyTransposes(int*     order,
+                            int*     lengths,
+                            uint8_t* segFlags,
+                            int*     countInOut)
 {
     int count = *countInOut;
     int originTag[kSeqLength];
@@ -544,12 +560,14 @@ static void ApplyTransposes(int* order, int* lengths, int* countInOut)
         {
             continue;
         }
+        cvModified[c] = true;
 
-        int newOrder[kSeqLength];
-        int newLens[kSeqLength];
-        int newTags[kSeqLength];
-        int out = 0;
-        int i   = 0;
+        int     newOrder[kSeqLength];
+        int     newLens[kSeqLength];
+        int     newTags[kSeqLength];
+        uint8_t newFlags[kSeqLength];
+        int     out = 0;
+        int     i   = 0;
         while(i < count)
         {
             int tag = originTag[i];
@@ -558,13 +576,15 @@ static void ApplyTransposes(int* order, int* lengths, int* countInOut)
                 newOrder[out] = order[i];
                 newLens[out]  = lengths[i];
                 newTags[out]  = originTag[i];
+                newFlags[out] = segFlags[i];
                 out++;
                 i++;
                 continue;
             }
 
-            int runFirst = tag;
-            int runSteps = 0;
+            int     runFirst = tag;
+            int     runSteps = 0;
+            uint8_t runFlags = 0;
             while(i < count)
             {
                 tag = originTag[i];
@@ -573,6 +593,7 @@ static void ApplyTransposes(int* order, int* lengths, int* countInOut)
                     break;
                 }
                 runSteps += lengths[i];
+                runFlags |= segFlags[i];
                 i++;
             }
 
@@ -585,6 +606,8 @@ static void ApplyTransposes(int* order, int* lengths, int* countInOut)
                 newOrder[out] = fillIds[f];
                 newLens[out]  = fillLens[f];
                 newTags[out]  = -1;
+                // Preserve nested segment membership (e.g. Repeat inside Transpose).
+                newFlags[out] = runFlags;
                 out++;
             }
         }
@@ -595,26 +618,259 @@ static void ApplyTransposes(int* order, int* lengths, int* countInOut)
             order[k]     = newOrder[k];
             lengths[k]   = newLens[k];
             originTag[k] = newTags[k];
+            segFlags[k]  = newFlags[k];
         }
     }
 
     *countInOut = count;
 }
 
+static void ExpandToSteps(const int*     order,
+                          const int*     lengths,
+                          const uint8_t* segFlags,
+                          int            count,
+                          int*           stepNote,
+                          bool*          stepStart,
+                          uint8_t*       stepFlags,
+                          int*           nStepsOut)
+{
+    int nSteps = 0;
+    for(int i = 0; i < count; i++)
+    {
+        for(int t = 0; t < lengths[i]; t++)
+        {
+            if(nSteps >= kSeqLength)
+            {
+                break;
+            }
+            stepNote[nSteps]  = order[i];
+            stepStart[nSteps] = (t == 0);
+            stepFlags[nSteps] = segFlags[i];
+            nSteps++;
+        }
+    }
+    *nStepsOut = nSteps;
+}
+
+static void CollapseFromSteps(const int*  stepNote,
+                              const bool* stepStart,
+                              int         nSteps,
+                              int*        order,
+                              int*        lengths,
+                              int*        countOut)
+{
+    int count = 0;
+    int i     = 0;
+    while(i < nSteps)
+    {
+        int id  = stepNote[i];
+        int len = 1;
+        i++;
+        while(i < nSteps && !stepStart[i])
+        {
+            len++;
+            i++;
+        }
+        order[count]   = id;
+        lengths[count] = len;
+        count++;
+    }
+    *countOut = count;
+}
+
+static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* countInOut)
+{
+    int count = *countInOut;
+    if(count <= 0 || totalSteps <= 0)
+    {
+        return;
+    }
+
+    int     stepNote[kSeqLength];
+    bool    stepStart[kSeqLength];
+    uint8_t stepFlags[kSeqLength];
+    int     nSteps = 0;
+    ExpandToSteps(
+        order, lengths, segFlags, count, stepNote, stepStart, stepFlags, &nSteps);
+    if(nSteps <= 0)
+    {
+        return;
+    }
+
+    bool stepProtected[kSeqLength];
+    bool stepRepeatOwned[kSeqLength];
+    for(int s = 0; s < nSteps; s++)
+    {
+        stepProtected[s]   = false;
+        stepRepeatOwned[s] = false;
+        for(int c = 0; c < 4; c++)
+        {
+            if(!cvModified[c])
+            {
+                continue;
+            }
+            if(cvChannels[c].type != CV_TYPE_SHIFT
+               && cvChannels[c].type != CV_TYPE_TRANSPOSE)
+            {
+                continue;
+            }
+            if(stepFlags[s] & (1u << c))
+            {
+                stepProtected[s] = true;
+            }
+        }
+    }
+
+    for(int c = 0; c < 4; c++)
+    {
+        if(cvChannels[c].type != CV_TYPE_REPEAT)
+        {
+            continue;
+        }
+
+        uint8_t mask = (uint8_t)(1u << c);
+
+        // Locate contiguous runs belonging to this Repeat segment.
+        int runStarts[kSeqLength];
+        int runEnds[kSeqLength];
+        int runCount = 0;
+        int s        = 0;
+        while(s < nSteps)
+        {
+            if(!(stepFlags[s] & mask))
+            {
+                s++;
+                continue;
+            }
+            int start = s;
+            while(s < nSteps && (stepFlags[s] & mask))
+            {
+                s++;
+            }
+            runStarts[runCount] = start;
+            runEnds[runCount]   = s;
+            runCount++;
+        }
+        if(runCount == 0)
+        {
+            continue;
+        }
+
+        float amount = patch.GetKnobValue((daisy::DaisyPatch::Ctrl)c);
+
+        for(int r = 0; r < runCount; r++)
+        {
+            int patternStart = runStarts[r];
+            int patternEnd   = runEnds[r];
+            int patternLen   = patternEnd - patternStart;
+            if(patternLen <= 0)
+            {
+                continue;
+            }
+
+            int patNote[kSeqLength];
+            bool patStart[kSeqLength];
+            for(int p = 0; p < patternLen; p++)
+            {
+                patNote[p]  = stepNote[patternStart + p];
+                patStart[p] = stepStart[patternStart + p];
+            }
+
+            int maxBefore = patternStart;
+            int maxAfter  = nSteps - patternEnd;
+            int moves     = ClampCvAmountMoves(amount, maxBefore, maxAfter);
+            if(moves == 0)
+            {
+                continue;
+            }
+
+            if(moves < 0)
+            {
+                int  fillCount = -moves;
+                int  destStart = patternStart - fillCount;
+                int  phase
+                    = (patternLen - (fillCount % patternLen)) % patternLen;
+                bool forceStart = true;
+                for(int i = 0; i < fillCount; i++)
+                {
+                    int dest = destStart + i;
+                    int src  = (phase + i) % patternLen;
+                    if(stepProtected[dest] || stepRepeatOwned[dest])
+                    {
+                        forceStart = true;
+                        continue;
+                    }
+                    stepNote[dest]        = patNote[src];
+                    stepStart[dest]       = patStart[src] || forceStart;
+                    stepRepeatOwned[dest] = true;
+                    forceStart            = false;
+                }
+            }
+            else
+            {
+                int  fillCount  = moves;
+                int  destStart  = patternEnd;
+                bool forceStart = true;
+                for(int i = 0; i < fillCount; i++)
+                {
+                    int dest = destStart + i;
+                    int src  = i % patternLen;
+                    if(stepProtected[dest] || stepRepeatOwned[dest])
+                    {
+                        forceStart = true;
+                        continue;
+                    }
+                    stepNote[dest]        = patNote[src];
+                    stepStart[dest]       = patStart[src] || forceStart;
+                    stepRepeatOwned[dest] = true;
+                    forceStart            = false;
+                }
+            }
+        }
+    }
+
+    CollapseFromSteps(stepNote, stepStart, nSteps, order, lengths, countInOut);
+}
+
 void RebuildModifiedSequence()
 {
-    int order[kSeqLength];
-    int lengths[kSeqLength];
-    int count = numNotes;
+    int     order[kSeqLength];
+    int     lengths[kSeqLength];
+    uint8_t segFlags[kSeqLength];
+    int     count = numNotes;
+
+    for(int c = 0; c < 4; c++)
+    {
+        cvModified[c] = false;
+    }
+
+    bool segNotes[4][kSeqLength];
+    for(int c = 0; c < 4; c++)
+    {
+        for(int n = 0; n < kSeqLength; n++)
+        {
+            segNotes[c][n] = false;
+        }
+        MarkSegmentNotes(cvChannels[c].position, cvChannels[c].size, segNotes[c]);
+    }
 
     for(int i = 0; i < numNotes; i++)
     {
-        order[i]   = i;
-        lengths[i] = noteLength[i];
+        order[i]    = i;
+        lengths[i]  = noteLength[i];
+        segFlags[i] = 0;
+        for(int c = 0; c < 4; c++)
+        {
+            if(segNotes[c][i])
+            {
+                segFlags[i] |= (uint8_t)(1u << c);
+            }
+        }
     }
 
-    ApplyShifts(order, lengths, &count);
-    ApplyTransposes(order, lengths, &count);
+    ApplyShifts(order, lengths, segFlags, &count);
+    ApplyTransposes(order, lengths, segFlags, &count);
+    ApplyRepeats(order, lengths, segFlags, &count);
 
     modNumNotes = count;
     for(int i = 0; i < count; i++)
