@@ -16,7 +16,7 @@ static int        saveNameLen;
 static int        nameCursor;
 static SaveCursor saveCursor;
 static bool       editingChar;
-static char       editChar; // character shown while editing (never stored as space)
+static char       editChar; // character shown while editing (' ' = pending delete)
 
 // a-z, 0-9, _  (space is a delete action, not a storable character)
 static const char* kChars     = "abcdefghijklmnopqrstuvwxyz0123456789_";
@@ -155,22 +155,14 @@ void SaveMenuProcessEncoder()
         {
             if(CanDeleteLastChar())
             {
-                // Include a synthetic "space" option before 'a' for delete.
-                // Indices: 0 = delete/space, 1..kCharCount = kChars[0..]
-                int idx = CharToIndex(editChar) + 1;
+                // Indices: 0 = space/delete, 1..kCharCount = kChars[0..]
+                int idx = (editChar == ' ') ? 0 : (CharToIndex(editChar) + 1);
                 idx     = WrapIndex(idx, inc, kCharCount + 1);
-                if(idx == 0)
-                {
-                    TruncateName(saveNameLen - 1);
-                    nameCursor  = saveNameLen > 0 ? saveNameLen - 1 : 0;
-                    editingChar = false;
-                    return;
-                }
-                editChar = kChars[idx - 1];
+                editChar = (idx == 0) ? ' ' : kChars[idx - 1];
             }
             else
             {
-                int idx  = CharToIndex(editChar);
+                int idx  = CharToIndex(editChar == ' ' ? 'a' : editChar);
                 idx      = WrapIndex(idx, inc, kCharCount);
                 editChar = kChars[idx];
             }
@@ -178,14 +170,20 @@ void SaveMenuProcessEncoder()
 
         if(patch.encoder.RisingEdge())
         {
-            if(IsAppendSlot())
+            if(editChar == ' ')
+            {
+                // Confirmed delete of the last character.
+                TruncateName(saveNameLen - 1);
+                nameCursor = saveNameLen > 0 ? saveNameLen - 1 : 0;
+            }
+            else if(IsAppendSlot())
             {
                 saveName[saveNameLen] = editChar;
                 TruncateName(saveNameLen + 1);
             }
             else
             {
-                saveName[nameCursor] = editChar;
+                saveName[nameCursor]  = editChar;
                 saveName[saveNameLen] = '\0';
             }
             editingChar = false;
