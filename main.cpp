@@ -4,6 +4,10 @@
 #include "main_menu.h"
 #include "edit_sequence.h"
 #include "cv_menu.h"
+#include "save_menu.h"
+#include "load_menu.h"
+#include "new_menu.h"
+#include "storage.h"
 
 using namespace daisy;
 using namespace daisysp;
@@ -32,6 +36,7 @@ int main(void)
     cvValue       = 0;
     lengthCv      = 0;
 
+    InitStorage();
     InitSequence();
     MainMenuInit();
     EditSequenceInit();
@@ -58,6 +63,18 @@ void UpdateControls()
     else if(uiScreen == UI_CV_MENU)
     {
         CvMenuProcessEncoder();
+    }
+    else if(uiScreen == UI_SAVE_MENU)
+    {
+        SaveMenuProcessEncoder();
+    }
+    else if(uiScreen == UI_LOAD_MENU)
+    {
+        LoadMenuProcessEncoder();
+    }
+    else if(uiScreen == UI_NEW_MENU)
+    {
+        NewMenuProcessEncoder();
     }
     else
     {
@@ -105,6 +122,18 @@ void UpdateOled()
     else if(uiScreen == UI_CV_MENU)
     {
         CvMenuDraw();
+    }
+    else if(uiScreen == UI_SAVE_MENU)
+    {
+        SaveMenuDraw();
+    }
+    else if(uiScreen == UI_LOAD_MENU)
+    {
+        LoadMenuDraw();
+    }
+    else if(uiScreen == UI_NEW_MENU)
+    {
+        NewMenuDraw();
     }
     else
     {

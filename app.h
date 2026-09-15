@@ -14,6 +14,9 @@ enum UiScreen
     UI_MAIN_MENU,
     UI_EDIT_SEQUENCE,
     UI_CV_MENU,
+    UI_SAVE_MENU,
+    UI_LOAD_MENU,
+    UI_NEW_MENU,
 };
 
 enum CvType

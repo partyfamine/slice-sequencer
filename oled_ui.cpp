@@ -1,5 +1,7 @@
 #include "oled_ui.h"
 #include "app.h"
+#include "storage.h"
+#include <cstring>
 
 void DrawChars(int x, int y, const char* str, bool on)
 {
@@ -65,5 +67,60 @@ void DrawSequence(int y, int invertBeat)
 
 void DrawCenteredSeparator(int y)
 {
-    DrawChars(0, y, " ----------------", true);
+    char line[kSeqLength + 2];
+    line[0] = ' ';
+
+    if(!HasSequenceName())
+    {
+        for(int i = 0; i < kSeqLength; i++)
+        {
+            line[i + 1] = '-';
+        }
+        line[kSeqLength + 1] = '\0';
+        DrawChars(0, y, line, true);
+        return;
+    }
+
+    // 16-char centered name: spaces around name, then dashes to fill.
+    char   body[kSeqLength + 1];
+    int    nameLen = (int)strlen(sequenceName);
+    if(nameLen > kSeqLength - 2)
+    {
+        nameLen = kSeqLength - 2;
+    }
+
+    // content with one space on each side of the name
+    int contentLen = nameLen + 2;
+    int remaining  = kSeqLength - contentLen;
+    if(remaining < 0)
+    {
+        remaining = 0;
+    }
+    int leftDashes  = remaining / 2;
+    int rightDashes = remaining - leftDashes;
+
+    int pos = 0;
+    for(int i = 0; i < leftDashes; i++)
+    {
+        body[pos++] = '-';
+    }
+    body[pos++] = ' ';
+    for(int i = 0; i < nameLen; i++)
+    {
+        body[pos++] = sequenceName[i];
+    }
+    body[pos++] = ' ';
+    for(int i = 0; i < rightDashes; i++)
+    {
+        body[pos++] = '-';
+    }
+    body[pos] = '\0';
+
+    line[0] = ' ';
+    for(int i = 0; i < kSeqLength; i++)
+    {
+        line[i + 1] = body[i];
+    }
+    line[kSeqLength + 1] = '\0';
+    DrawChars(0, y, line, true);
 }

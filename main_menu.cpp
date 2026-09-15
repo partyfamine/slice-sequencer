@@ -2,8 +2,11 @@
 #include "app.h"
 #include "oled_ui.h"
 #include "cv_menu.h"
+#include "save_menu.h"
+#include "load_menu.h"
+#include "new_menu.h"
 
-static const int kMainMenuCount = 8;
+static const int kMainMenuCount = 9;
 
 static const char* kMainMenuLabels[kMainMenuCount] = {
     "Edit Sequence",
@@ -11,8 +14,9 @@ static const char* kMainMenuLabels[kMainMenuCount] = {
     "CV2",
     "CV3",
     "CV4",
-    "Save (TODO)",
-    "Load (TODO)",
+    "Save",
+    "Load",
+    "New",
     "Settings (TODO)",
 };
 
@@ -40,6 +44,21 @@ void MainMenuProcessEncoder()
         {
             CvMenuEnter(mainMenuIndex - 1);
             uiScreen = UI_CV_MENU;
+        }
+        else if(mainMenuIndex == 5)
+        {
+            SaveMenuEnter();
+            uiScreen = UI_SAVE_MENU;
+        }
+        else if(mainMenuIndex == 6)
+        {
+            LoadMenuEnter();
+            uiScreen = UI_LOAD_MENU;
+        }
+        else if(mainMenuIndex == 7)
+        {
+            NewMenuEnter();
+            uiScreen = UI_NEW_MENU;
         }
     }
 }
