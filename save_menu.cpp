@@ -16,10 +16,11 @@ static int        saveNameLen;
 static int        nameCursor;
 static SaveCursor saveCursor;
 static bool       editingChar;
+static char       editChar; // character shown while editing (never stored as space)
 
-// space, a-z, 0-9, _
-static const char* kChars     = " abcdefghijklmnopqrstuvwxyz0123456789_";
-static const int   kCharCount = 38;
+// a-z, 0-9, _  (space is a delete action, not a storable character)
+static const char* kChars     = "abcdefghijklmnopqrstuvwxyz0123456789_";
+static const int   kCharCount = 37;
 
 static int CharToIndex(char c)
 {
@@ -30,15 +31,33 @@ static int CharToIndex(char c)
             return i;
         }
     }
-    return 1; // 'a'
+    return 0; // 'a'
 }
 
-static int WrapIndex(int idx, int delta, int minIdx)
+static int WrapIndex(int idx, int delta, int count)
 {
-    int count = kCharCount - minIdx;
-    int rel   = idx - minIdx + delta;
-    rel       = (rel % count + count) % count;
-    return rel + minIdx;
+    int rel = idx + delta;
+    rel     = (rel % count + count) % count;
+    return rel;
+}
+
+static void TruncateName(int newLen)
+{
+    if(newLen < 0)
+    {
+        newLen = 0;
+    }
+    if(newLen > kMaxSeqNameLen)
+    {
+        newLen = kMaxSeqNameLen;
+    }
+    saveNameLen = newLen;
+    saveName[saveNameLen] = '\0';
+    // Clear any leftover bytes so append never resumes after stale characters.
+    for(int i = saveNameLen + 1; i <= kMaxSeqNameLen; i++)
+    {
+        saveName[i] = '\0';
+    }
 }
 
 static bool IsAppendSlot()
@@ -46,9 +65,8 @@ static bool IsAppendSlot()
     return nameCursor == saveNameLen && saveNameLen < kMaxSeqNameLen;
 }
 
-static bool AllowSpaceOption()
+static bool CanDeleteLastChar()
 {
-    // Empty space only for the last character when name length > 1.
     return !IsAppendSlot() && saveNameLen > 1 && nameCursor == saveNameLen - 1;
 }
 
@@ -56,7 +74,7 @@ static int MaxNameCursor()
 {
     if(saveNameLen < kMaxSeqNameLen)
     {
-        return saveNameLen;
+        return saveNameLen; // one trailing append placeholder
     }
     return saveNameLen > 0 ? saveNameLen - 1 : 0;
 }
@@ -98,7 +116,6 @@ static void MoveSaveMenu(int dir)
         return;
     }
 
-    // BACK
     if(dir > 0)
     {
         saveCursor = SAVE_CURSOR_NAME;
@@ -116,17 +133,17 @@ void SaveMenuEnter()
     {
         strncpy(saveName, sequenceName, kMaxSeqNameLen);
         saveName[kMaxSeqNameLen] = '\0';
-        saveNameLen             = (int)strlen(saveName);
+        TruncateName((int)strlen(saveName));
     }
     else
     {
-        saveName[0]             = 'a';
-        saveName[1]             = '\0';
-        saveNameLen             = 1;
+        saveName[0] = 'a';
+        TruncateName(1);
     }
     nameCursor  = 0;
     saveCursor  = SAVE_CURSOR_NAME;
     editingChar = false;
+    editChar    = saveName[0];
 }
 
 void SaveMenuProcessEncoder()
@@ -136,38 +153,39 @@ void SaveMenuProcessEncoder()
         int inc = patch.encoder.Increment();
         if(inc != 0)
         {
-            int minIdx = AllowSpaceOption() ? 0 : 1;
-            int idx    = CharToIndex(saveName[nameCursor]);
-            if(idx < minIdx)
+            if(CanDeleteLastChar())
             {
-                idx = minIdx;
-            }
-            idx                      = WrapIndex(idx, inc, minIdx);
-            char c                   = kChars[idx];
-            saveName[nameCursor]     = c;
-            saveName[nameCursor + 1] = '\0';
-
-            if(c == ' ')
-            {
-                // Deleting the last character.
-                saveName[nameCursor] = '\0';
-                saveNameLen          = nameCursor;
-                if(nameCursor > 0)
+                // Include a synthetic "space" option before 'a' for delete.
+                // Indices: 0 = delete/space, 1..kCharCount = kChars[0..]
+                int idx = CharToIndex(editChar) + 1;
+                idx     = WrapIndex(idx, inc, kCharCount + 1);
+                if(idx == 0)
                 {
-                    nameCursor--;
+                    TruncateName(saveNameLen - 1);
+                    nameCursor  = saveNameLen > 0 ? saveNameLen - 1 : 0;
+                    editingChar = false;
+                    return;
                 }
-                editingChar = false;
+                editChar = kChars[idx - 1];
+            }
+            else
+            {
+                int idx  = CharToIndex(editChar);
+                idx      = WrapIndex(idx, inc, kCharCount);
+                editChar = kChars[idx];
             }
         }
 
         if(patch.encoder.RisingEdge())
         {
-            if(saveName[nameCursor] != ' ' && saveName[nameCursor] != '\0')
+            if(IsAppendSlot())
             {
-                if(nameCursor == saveNameLen)
-                {
-                    saveNameLen++;
-                }
+                saveName[saveNameLen] = editChar;
+                TruncateName(saveNameLen + 1);
+            }
+            else
+            {
+                saveName[nameCursor] = editChar;
                 saveName[saveNameLen] = '\0';
             }
             editingChar = false;
@@ -202,7 +220,7 @@ void SaveMenuProcessEncoder()
         {
             if(saveNameLen > 0)
             {
-                saveName[saveNameLen] = '\0';
+                TruncateName(saveNameLen);
                 SaveSequence(saveName);
             }
             uiScreen = UI_MAIN_MENU;
@@ -211,8 +229,11 @@ void SaveMenuProcessEncoder()
 
         if(IsAppendSlot())
         {
-            saveName[saveNameLen]     = 'a';
-            saveName[saveNameLen + 1] = '\0';
+            editChar = 'a';
+        }
+        else
+        {
+            editChar = saveName[nameCursor];
         }
         editingChar = true;
     }
@@ -220,25 +241,30 @@ void SaveMenuProcessEncoder()
 
 void SaveMenuDraw()
 {
-    int visibleLen = saveNameLen;
-    if(editingChar && nameCursor == saveNameLen)
+    // Draw the real name characters (never includes spaces).
+    for(int i = 0; i < saveNameLen; i++)
     {
-        visibleLen = saveNameLen + 1;
-    }
-
-    for(int i = 0; i < visibleLen; i++)
-    {
-        char cstr[2] = {saveName[i], '\0'};
-        bool selected
-            = (saveCursor == SAVE_CURSOR_NAME && nameCursor == i);
+        char c = saveName[i];
+        if(editingChar && nameCursor == i)
+        {
+            c = editChar;
+        }
+        char cstr[2]  = {c, '\0'};
+        bool selected = (saveCursor == SAVE_CURSOR_NAME && nameCursor == i);
         DrawChars(i * kFontWidth, 0, cstr, !selected);
     }
 
-    if(!editingChar && saveNameLen < kMaxSeqNameLen)
+    // Single trailing append placeholder, or the char being edited there.
+    if(saveNameLen < kMaxSeqNameLen)
     {
-        bool selected
+        bool onAppend
             = (saveCursor == SAVE_CURSOR_NAME && nameCursor == saveNameLen);
-        if(selected)
+        if(editingChar && onAppend)
+        {
+            char cstr[2] = {editChar, '\0'};
+            DrawChars(saveNameLen * kFontWidth, 0, cstr, false);
+        }
+        else if(onAppend)
         {
             DrawChars(saveNameLen * kFontWidth, 0, " ", false);
         }
