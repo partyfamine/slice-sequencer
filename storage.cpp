@@ -11,6 +11,7 @@ char sequenceName[kMaxSeqNameLen + 1];
 
 static SdmmcHandler   sdmmc;
 static FatFSInterface fsi;
+static FIL            file;
 static bool           storageReady;
 
 static char savedNames[kMaxSavedSeqs][kMaxSeqNameLen + 1];
@@ -33,6 +34,8 @@ struct SeqFileData
     } cv[4];
 };
 #pragma pack(pop)
+
+static SeqFileData fileData;
 
 static const char* kSeqDir = "seq";
 
@@ -59,14 +62,9 @@ static bool IsValidName(const char* name)
     return true;
 }
 
-static void BuildDirPath(char* path, size_t pathSize)
-{
-    snprintf(path, pathSize, "%s%s", fsi.GetSDPath(), kSeqDir);
-}
-
 static void BuildPath(char* path, size_t pathSize, const char* name)
 {
-    snprintf(path, pathSize, "%s%s/%s.seq", fsi.GetSDPath(), kSeqDir, name);
+    snprintf(path, pathSize, "%s/%s.seq", kSeqDir, name);
 }
 
 static void SortSavedNames()
@@ -118,19 +116,20 @@ bool InitStorage()
     sd_cfg.speed = SdmmcHandler::Speed::STANDARD;
     sdmmc.Init(sd_cfg);
 
-    if(fsi.Init(FatFSInterface::Config::MEDIA_SD) != FatFSInterface::Result::OK)
+    FatFSInterface::Config fsi_config;
+    fsi_config.media = FatFSInterface::Config::MEDIA_SD;
+    if(fsi.Init(fsi_config) != FatFSInterface::Result::OK)
     {
         return false;
     }
 
-    if(f_mount(&fsi.GetSDFileSystem(), fsi.GetSDPath(), 1) != FR_OK)
+    FATFS& fs = fsi.GetSDFileSystem();
+    if(f_mount(&fs, "/", 1) != FR_OK)
     {
         return false;
     }
 
-    char dirPath[32];
-    BuildDirPath(dirPath, sizeof(dirPath));
-    f_mkdir(dirPath);
+    f_mkdir(kSeqDir);
     storageReady = true;
     RefreshSavedSequenceList();
     return true;
@@ -151,9 +150,7 @@ void RefreshSavedSequenceList()
 
     DIR     dir;
     FILINFO info;
-    char    dirPath[32];
-    BuildDirPath(dirPath, sizeof(dirPath));
-    if(f_opendir(&dir, dirPath) != FR_OK)
+    if(f_opendir(&dir, kSeqDir) != FR_OK)
     {
         return;
     }
@@ -169,7 +166,6 @@ void RefreshSavedSequenceList()
             continue;
         }
 
-        // Expect "<name>.seq"
         const char* fname = info.fname;
         int         len   = (int)strlen(fname);
         if(len < 5)
@@ -251,47 +247,43 @@ bool SaveSequence(const char* name)
         return false;
     }
 
-    char dirPath[32];
-    BuildDirPath(dirPath, sizeof(dirPath));
-    f_mkdir(dirPath);
+    f_mkdir(kSeqDir);
 
     char path[64];
     BuildPath(path, sizeof(path), name);
 
-    SeqFileData data;
-    memset(&data, 0, sizeof(data));
-    data.magic[0]    = 'S';
-    data.magic[1]    = 'L';
-    data.magic[2]    = 'S';
-    data.magic[3]    = 'Q';
-    data.version     = 1;
-    data.totalSteps  = (uint8_t)totalSteps;
-    data.numNotes    = (uint8_t)numNotes;
-    data.reserved    = 0;
+    memset(&fileData, 0, sizeof(fileData));
+    fileData.magic[0]   = 'S';
+    fileData.magic[1]   = 'L';
+    fileData.magic[2]   = 'S';
+    fileData.magic[3]   = 'Q';
+    fileData.version    = 1;
+    fileData.totalSteps = (uint8_t)totalSteps;
+    fileData.numNotes   = (uint8_t)numNotes;
+    fileData.reserved   = 0;
     for(int i = 0; i < kSeqLength; i++)
     {
-        data.lengths[i] = (i < numNotes) ? (uint8_t)noteLength[i] : 0;
+        fileData.lengths[i] = (i < numNotes) ? (uint8_t)noteLength[i] : 0;
     }
     for(int c = 0; c < 4; c++)
     {
-        data.cv[c].type     = (uint8_t)cvChannels[c].type;
-        data.cv[c].position = (uint8_t)cvChannels[c].position;
-        data.cv[c].size     = (uint8_t)cvChannels[c].size;
+        fileData.cv[c].type     = (uint8_t)cvChannels[c].type;
+        fileData.cv[c].position = (uint8_t)cvChannels[c].position;
+        fileData.cv[c].size     = (uint8_t)cvChannels[c].size;
     }
 
-    FIL     file;
-    FRESULT openRes
-        = f_open(&file, path, FA_CREATE_ALWAYS | FA_WRITE | FA_READ);
-    if(openRes != FR_OK)
+    if(f_open(&file, path, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
     {
         return false;
     }
 
-    UINT    written = 0;
-    FRESULT writeRes = f_write(&file, &data, sizeof(data), &written);
-    f_close(&file);
+    UINT    bytes_written = 0;
+    FRESULT write_res
+        = f_write(&file, &fileData, sizeof(fileData), &bytes_written);
+    FRESULT close_res = f_close(&file);
 
-    if(writeRes != FR_OK || written != sizeof(data))
+    if(write_res != FR_OK || close_res != FR_OK
+       || bytes_written != sizeof(fileData))
     {
         return false;
     }
@@ -311,64 +303,64 @@ bool LoadSequence(const char* name)
     char path[64];
     BuildPath(path, sizeof(path), name);
 
-    FIL file;
     if(f_open(&file, path, FA_READ) != FR_OK)
     {
         return false;
     }
 
-    SeqFileData data;
-    UINT        read = 0;
-    FRESULT     res  = f_read(&file, &data, sizeof(data), &read);
+    UINT    bytes_read = 0;
+    FRESULT read_res
+        = f_read(&file, &fileData, sizeof(fileData), &bytes_read);
     f_close(&file);
 
-    if(res != FR_OK || read != sizeof(data))
+    if(read_res != FR_OK || bytes_read != sizeof(fileData))
     {
         return false;
     }
-    if(data.magic[0] != 'S' || data.magic[1] != 'L' || data.magic[2] != 'S'
-       || data.magic[3] != 'Q' || data.version != 1)
+    if(fileData.magic[0] != 'S' || fileData.magic[1] != 'L'
+       || fileData.magic[2] != 'S' || fileData.magic[3] != 'Q'
+       || fileData.version != 1)
     {
         return false;
     }
-    if(data.totalSteps < kMinSteps || data.totalSteps > kSeqLength
-       || data.numNotes < 1 || data.numNotes > kSeqLength)
+    if(fileData.totalSteps < kMinSteps || fileData.totalSteps > kSeqLength
+       || fileData.numNotes < 1 || fileData.numNotes > kSeqLength)
     {
         return false;
     }
 
     int beatSum = 0;
-    for(int i = 0; i < data.numNotes; i++)
+    for(int i = 0; i < fileData.numNotes; i++)
     {
-        if(data.lengths[i] < 1)
+        if(fileData.lengths[i] < 1)
         {
             return false;
         }
-        beatSum += data.lengths[i];
+        beatSum += fileData.lengths[i];
     }
-    if(beatSum != data.totalSteps)
+    if(beatSum != fileData.totalSteps)
     {
         return false;
     }
 
-    totalSteps = data.totalSteps;
-    numNotes   = data.numNotes;
+    totalSteps = fileData.totalSteps;
+    numNotes   = fileData.numNotes;
     for(int i = 0; i < kSeqLength; i++)
     {
-        noteLength[i] = (i < numNotes) ? data.lengths[i] : 1;
+        noteLength[i] = (i < numNotes) ? fileData.lengths[i] : 1;
     }
     for(int c = 0; c < 4; c++)
     {
-        if(data.cv[c].type >= CV_TYPE_LAST)
+        if(fileData.cv[c].type >= CV_TYPE_LAST)
         {
             cvChannels[c].type = CV_TYPE_SHIFT;
         }
         else
         {
-            cvChannels[c].type = (CvType)data.cv[c].type;
+            cvChannels[c].type = (CvType)fileData.cv[c].type;
         }
-        cvChannels[c].position = data.cv[c].position;
-        cvChannels[c].size     = data.cv[c].size;
+        cvChannels[c].position = fileData.cv[c].position;
+        cvChannels[c].size     = fileData.cv[c].size;
         if(cvChannels[c].size < 1)
         {
             cvChannels[c].size = 1;
