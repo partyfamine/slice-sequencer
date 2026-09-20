@@ -25,6 +25,31 @@ void UpdateControls();
 void UpdateOled();
 void UpdateOutputs();
 
+static void AudioCallback(AudioHandle::InputBuffer  in,
+                          AudioHandle::OutputBuffer out,
+                          size_t                    size)
+{
+    for(size_t i = 0; i < size; i++)
+    {
+        float kick  = 0.f;
+        float snare = 0.f;
+        if(kickGateSamples > 0)
+        {
+            kick = 1.f;
+            kickGateSamples--;
+        }
+        if(snareGateSamples > 0)
+        {
+            snare = 1.f;
+            snareGateSamples--;
+        }
+        out[0][i] = kick;
+        out[1][i] = snare;
+        out[2][i] = 0.f;
+        out[3][i] = 0.f;
+    }
+}
+
 int main(void)
 {
     patch.Init();
@@ -44,6 +69,7 @@ int main(void)
     CvMenuInit();
 
     patch.StartAdc();
+    patch.StartAudio(AudioCallback);
     while(1)
     {
         UpdateControls();

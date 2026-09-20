@@ -32,6 +32,7 @@ struct SeqFileData
         uint8_t position;
         uint8_t size;
     } cv[4];
+    uint8_t hits[kSeqLength]; // version >= 2
 };
 #pragma pack(pop)
 
@@ -328,13 +329,14 @@ bool SaveSequence(const char* name)
     fileData.magic[1]   = 'L';
     fileData.magic[2]   = 'S';
     fileData.magic[3]   = 'Q';
-    fileData.version    = 1;
+    fileData.version    = 2;
     fileData.totalSteps = (uint8_t)totalSteps;
     fileData.numNotes   = (uint8_t)numNotes;
     fileData.reserved   = 0;
     for(int i = 0; i < kSeqLength; i++)
     {
         fileData.lengths[i] = (i < numNotes) ? (uint8_t)noteLength[i] : 0;
+        fileData.hits[i]    = (i < numNotes) ? noteHit[i] : HIT_NONE;
     }
     for(int c = 0; c < 4; c++)
     {
@@ -385,13 +387,29 @@ bool LoadSequence(const char* name)
         = f_read(&file, &fileData, sizeof(fileData), &bytes_read);
     f_close(&file);
 
-    if(read_res != FR_OK || bytes_read != sizeof(fileData))
+    // v1 was 36 bytes (no hits); v2 includes hits[16].
+    const UINT kV1Size = sizeof(fileData) - sizeof(fileData.hits);
+    if(read_res != FR_OK || bytes_read < kV1Size)
     {
         return false;
     }
     if(fileData.magic[0] != 'S' || fileData.magic[1] != 'L'
-       || fileData.magic[2] != 'S' || fileData.magic[3] != 'Q'
-       || fileData.version != 1)
+       || fileData.magic[2] != 'S' || fileData.magic[3] != 'Q')
+    {
+        return false;
+    }
+    if(fileData.version == 1)
+    {
+        memset(fileData.hits, HIT_NONE, sizeof(fileData.hits));
+    }
+    else if(fileData.version == 2)
+    {
+        if(bytes_read < sizeof(fileData))
+        {
+            return false;
+        }
+    }
+    else
     {
         return false;
     }
@@ -420,6 +438,12 @@ bool LoadSequence(const char* name)
     for(int i = 0; i < kSeqLength; i++)
     {
         noteLength[i] = (i < numNotes) ? fileData.lengths[i] : 1;
+        uint8_t hit   = (i < numNotes) ? fileData.hits[i] : HIT_NONE;
+        if(hit > HIT_SNARE)
+        {
+            hit = HIT_NONE;
+        }
+        noteHit[i] = hit;
     }
     for(int c = 0; c < 4; c++)
     {

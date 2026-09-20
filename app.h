@@ -37,7 +37,21 @@ struct CvChannel
 extern UiScreen uiScreen;
 extern int      activeCvIndex;
 
+enum NoteHit : uint8_t
+{
+    HIT_NONE  = 0,
+    HIT_KICK  = 1,
+    HIT_SNARE = 2,
+};
+
+enum AssignMode
+{
+    ASSIGN_LENGTH = 0,
+    ASSIGN_HITS,
+};
+
 extern int      noteLength[kSeqLength];
+extern uint8_t  noteHit[kSeqLength];
 extern int      numNotes;
 extern int      totalSteps;
 extern int      stepNumber;
@@ -51,6 +65,9 @@ extern CvChannel cvChannels[4];
 extern int modNoteOrder[kSeqLength];
 extern int modNoteLength[kSeqLength];
 extern int modNumNotes;
+
+extern volatile int kickGateSamples;
+extern volatile int snareGateSamples;
 
 void InitSequence();
 int  NoteStartBeat(int note);
@@ -71,6 +88,7 @@ void DecreaseNoteLength(int note);
 void TriggerNoteAtStep();
 void TriggerNoteAtStep(bool fireGate);
 void ResetToFirstStep();
+void TriggerHitGates(int noteId);
 
 void InitCvChannels();
 void ClampCvPositions();

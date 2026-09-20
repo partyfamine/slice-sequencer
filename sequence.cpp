@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 int noteLength[kSeqLength];
+uint8_t noteHit[kSeqLength];
 int numNotes;
 int totalSteps;
 int stepNumber;
@@ -13,8 +14,14 @@ int modNumNotes;
 
 CvChannel cvChannels[4];
 
-static int savedNoteLength[kSeqLength];
-static int savedNumNotes;
+volatile int kickGateSamples;
+volatile int snareGateSamples;
+
+static const int kAudioGateSamples = 480; // ~10ms at 48kHz
+
+static int     savedNoteLength[kSeqLength];
+static uint8_t savedNoteHit[kSeqLength];
+static int     savedNumNotes;
 
 void InitCvChannels()
 {
@@ -48,12 +55,15 @@ void ClampCvPositions()
 
 void InitSequence()
 {
-    stepNumber = 0;
-    totalSteps = kSeqLength;
-    numNotes   = kSeqLength;
+    stepNumber       = 0;
+    totalSteps       = kSeqLength;
+    numNotes         = kSeqLength;
+    kickGateSamples  = 0;
+    snareGateSamples = 0;
     for(int i = 0; i < kSeqLength; i++)
     {
         noteLength[i] = 1;
+        noteHit[i]    = HIT_NONE;
     }
     InitCvChannels();
     RebuildModifiedSequence();
@@ -907,6 +917,7 @@ void SnapshotSequence()
     for(int i = 0; i < kSeqLength; i++)
     {
         savedNoteLength[i] = noteLength[i];
+        savedNoteHit[i]    = noteHit[i];
     }
 }
 
@@ -932,12 +943,14 @@ void ApplyTotalSteps(int newTotal)
             len = remaining;
         }
         noteLength[numNotes] = len;
+        noteHit[numNotes]    = savedNoteHit[n];
         numNotes++;
         beats += len;
     }
     while(beats < newTotal)
     {
         noteLength[numNotes] = 1;
+        noteHit[numNotes]    = HIT_NONE;
         numNotes++;
         beats++;
     }
@@ -962,6 +975,7 @@ void IncreaseNoteLength(int note)
     else
     {
         numNotes--;
+        noteHit[numNotes] = HIT_NONE;
     }
     noteLength[note]++;
     ClampCvPositions();
@@ -977,8 +991,25 @@ void DecreaseNoteLength(int note)
 
     noteLength[note]--;
     noteLength[numNotes] = 1;
+    noteHit[numNotes]    = HIT_NONE;
     numNotes++;
     RebuildModifiedSequence();
+}
+
+void TriggerHitGates(int noteId)
+{
+    if(noteId < 0 || noteId >= numNotes)
+    {
+        return;
+    }
+    if(noteHit[noteId] == HIT_KICK)
+    {
+        kickGateSamples = kAudioGateSamples;
+    }
+    else if(noteHit[noteId] == HIT_SNARE)
+    {
+        snareGateSamples = kAudioGateSamples;
+    }
 }
 
 void TriggerNoteAtStep()
@@ -1000,6 +1031,7 @@ void TriggerNoteAtStep(bool fireGate)
     if(fireGate)
     {
         trigOut = true;
+        TriggerHitGates(origId);
     }
 }
 
