@@ -13,6 +13,7 @@ bool HasSequenceName();
 
 bool SaveSequence(const char* name);
 bool LoadSequence(const char* name);
+bool LoadLastSequence();
 void ResetToNewSequence();
 
 int  ListSavedSequences(char names[][kMaxSeqNameLen + 1], int maxNames);

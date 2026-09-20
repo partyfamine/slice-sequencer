@@ -37,7 +37,8 @@ struct SeqFileData
 
 static SeqFileData fileData;
 
-static const char* kSeqDir = "seq";
+static const char* kSeqDir   = "seq";
+static const char* kLastPath = "seq/last.txt";
 
 static bool IsValidNameChar(char c)
 {
@@ -65,6 +66,76 @@ static bool IsValidName(const char* name)
 static void BuildPath(char* path, size_t pathSize, const char* name)
 {
     snprintf(path, pathSize, "%s/%s.seq", kSeqDir, name);
+}
+
+static bool RememberLastSequence(const char* name)
+{
+    if(!storageReady || !IsValidName(name))
+    {
+        return false;
+    }
+
+    f_mkdir(kSeqDir);
+    if(f_open(&file, kLastPath, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
+    {
+        return false;
+    }
+
+    UINT    bytes_written = 0;
+    size_t  len           = strlen(name);
+    FRESULT write_res     = f_write(&file, name, len, &bytes_written);
+    FRESULT close_res     = f_close(&file);
+    return write_res == FR_OK && close_res == FR_OK && bytes_written == len;
+}
+
+static void ClearLastSequence()
+{
+    if(!storageReady)
+    {
+        return;
+    }
+    f_unlink(kLastPath);
+}
+
+static bool ReadLastSequenceName(char* nameOut, size_t nameOutSize)
+{
+    if(!storageReady || nameOut == nullptr || nameOutSize == 0)
+    {
+        return false;
+    }
+
+    if(f_open(&file, kLastPath, FA_READ) != FR_OK)
+    {
+        return false;
+    }
+
+    char buf[kMaxSeqNameLen + 1];
+    memset(buf, 0, sizeof(buf));
+    UINT    bytes_read = 0;
+    FRESULT read_res   = f_read(&file, buf, kMaxSeqNameLen, &bytes_read);
+    f_close(&file);
+
+    if(read_res != FR_OK || bytes_read == 0)
+    {
+        return false;
+    }
+    buf[bytes_read] = '\0';
+
+    while(bytes_read > 0
+          && (buf[bytes_read - 1] == '\n' || buf[bytes_read - 1] == '\r'
+              || buf[bytes_read - 1] == ' '))
+    {
+        buf[--bytes_read] = '\0';
+    }
+
+    if(!IsValidName(buf))
+    {
+        return false;
+    }
+
+    strncpy(nameOut, buf, nameOutSize - 1);
+    nameOut[nameOutSize - 1] = '\0';
+    return true;
 }
 
 static void SortSavedNames()
@@ -289,6 +360,7 @@ bool SaveSequence(const char* name)
     }
 
     SetSequenceName(name);
+    RememberLastSequence(name);
     RefreshSavedSequenceList();
     return true;
 }
@@ -374,13 +446,25 @@ bool LoadSequence(const char* name)
     ClampCvPositions();
     stepNumber = 0;
     SetSequenceName(name);
+    RememberLastSequence(name);
     RebuildModifiedSequence();
     RefreshCvsFromCurrentStep();
     return true;
 }
 
+bool LoadLastSequence()
+{
+    char name[kMaxSeqNameLen + 1];
+    if(!ReadLastSequenceName(name, sizeof(name)))
+    {
+        return false;
+    }
+    return LoadSequence(name);
+}
+
 void ResetToNewSequence()
 {
+    ClearLastSequence();
     ClearSequenceName();
     InitSequence();
     stepNumber = 0;
