@@ -1,6 +1,7 @@
 #include "cv_menu.h"
 #include "app.h"
 #include "oled_ui.h"
+#include "patterns.h"
 
 enum CvCursor
 {
@@ -19,7 +20,7 @@ struct CvMenuState
     int      draftSize;
 };
 
-static CvMenuState menus[4];
+static CvMenuState menus[kNumCvControls];
 static int         currentCv;
 
 static const char* TypeName(CvType t)
@@ -47,6 +48,7 @@ static void SaveDraft(int idx)
     cvChannels[idx].size     = menus[idx].draftSize;
     ClampCvPositions();
     menus[idx].draftPosition = cvChannels[idx].position;
+    StoreWorkingCvToSlot(selectedPattern);
     RebuildModifiedSequence();
 }
 
@@ -76,13 +78,14 @@ static void EditValue(int inc)
     }
     if(m.cursor == CV_CURSOR_POSITION)
     {
-        if(numNotes <= 0)
+        int count = ActiveNoteCount();
+        if(count <= 0)
         {
             return;
         }
         m.draftPosition += inc;
         m.draftPosition
-            = (m.draftPosition % numNotes + numNotes) % numNotes;
+            = (m.draftPosition % count + count) % count;
         return;
     }
     if(m.cursor == CV_CURSOR_SIZE)
@@ -102,7 +105,7 @@ static void EditValue(int inc)
 void CvMenuInit()
 {
     currentCv = 0;
-    for(int i = 0; i < 4; i++)
+    for(int i = 0; i < kNumCvControls; i++)
     {
         menus[i].cursor  = CV_CURSOR_TYPE;
         menus[i].editing = false;
@@ -116,14 +119,16 @@ void CvMenuEnter(int cvIndex)
     {
         cvIndex = 0;
     }
-    if(cvIndex > 3)
+    if(cvIndex >= kNumCvControls)
     {
-        cvIndex = 3;
+        cvIndex = kNumCvControls - 1;
     }
+    patternSelectLocked      = true;
     currentCv                = cvIndex;
     activeCvIndex            = cvIndex;
     menus[currentCv].cursor  = CV_CURSOR_TYPE;
     menus[currentCv].editing = false;
+    RebuildModifiedSequenceForSlot(selectedPattern);
     LoadDraft(currentCv);
     ClampCvPositions();
     LoadDraft(currentCv);
@@ -168,7 +173,9 @@ void CvMenuProcessEncoder()
     {
         if(m.cursor == CV_CURSOR_BACK)
         {
-            uiScreen = UI_MAIN_MENU;
+            StoreWorkingCvToSlot(selectedPattern);
+            patternSelectLocked = false;
+            uiScreen            = UI_MAIN_MENU;
             return;
         }
         LoadDraft(currentCv);
@@ -183,6 +190,7 @@ void CvMenuDraw()
     CvType type     = m.editing ? m.draftType : cvChannels[currentCv].type;
     int    position = m.editing ? m.draftPosition : cvChannels[currentCv].position;
     int    size     = m.editing ? m.draftSize : cvChannels[currentCv].size;
+    int    count    = ActiveNoteCount();
 
     bool selType = m.cursor == CV_CURSOR_TYPE && !m.editing;
     bool selPos  = m.cursor == CV_CURSOR_POSITION && !m.editing;
@@ -197,7 +205,7 @@ void CvMenuDraw()
 
     DrawChars(0, 10, "Position", !selPos);
     DrawChars(8 * kFontWidth, 10, ": ", true);
-    char posStr[2] = {kHex[position < numNotes ? position : 0], '\0'};
+    char posStr[2] = {kHex[position < count ? position : 0], '\0'};
     DrawChars(10 * kFontWidth,
               10,
               posStr,
@@ -212,7 +220,7 @@ void CvMenuDraw()
               !(m.editing && m.cursor == CV_CURSOR_SIZE));
 
     char seq[kSeqLength + 2];
-    BuildSequenceString(seq);
+    BuildBaselineSequenceString(seq);
     int startBeat, endBeat;
     GetSegmentRange(position, size, &startBeat, &endBeat);
     DrawSequenceStringMasked(40, seq, startBeat, endBeat, false);

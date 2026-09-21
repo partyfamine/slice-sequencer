@@ -7,6 +7,8 @@
 #include "save_menu.h"
 #include "load_menu.h"
 #include "new_menu.h"
+#include "patterns_menu.h"
+#include "patterns.h"
 #include "storage.h"
 
 using namespace daisy;
@@ -63,6 +65,7 @@ int main(void)
 
     InitStorage();
     InitSequence();
+    InitPatterns();
     LoadLastSequence();
     MainMenuInit();
     EditSequenceInit();
@@ -103,14 +106,24 @@ void UpdateControls()
     {
         NewMenuProcessEncoder();
     }
+    else if(uiScreen == UI_PATTERNS_MENU)
+    {
+        PatternsMenuProcessEncoder();
+    }
+    else if(uiScreen == UI_PATTERN_ORDER_MENU)
+    {
+        PatternOrderProcessEncoder();
+    }
     else
     {
         MainMenuProcessEncoder();
     }
 
-    // Update the modified sequence for the display immediately.
-    // CV/gate outputs only change on the next clocked step below.
-    RebuildModifiedSequence();
+    UpdatePatternSelectionFromCv();
+
+    // Display uses the selected pattern; playback may lag until next step.
+    StoreWorkingCvToSlot(selectedPattern);
+    RebuildModifiedSequenceForSlot(selectedPattern);
 
     bool clock = patch.gate_input[0].Trig();
     bool reset = patch.gate_input[1].Trig();
@@ -131,9 +144,27 @@ void UpdateControls()
         }
         else
         {
+            bool midNote   = false;
+            int  holdId    = 0;
+            int  holdSteps = 0;
+            if(PatternSwitchPending())
+            {
+                CapturePatternSwitchHoldState(&midNote, &holdId, &holdSteps);
+            }
+
             stepNumber++;
             stepNumber %= totalSteps;
+
+            if(PatternSwitchPending())
+            {
+                ApplyPendingPatternSwitch(midNote, holdId, holdSteps);
+            }
+
+            RebuildModifiedSequenceForSlot(playPattern);
             TriggerNoteAtStep(ModIsNoteStart(stepNumber));
+
+            // Restore selected pattern for display.
+            RebuildModifiedSequenceForSlot(selectedPattern);
         }
     }
 }
@@ -161,6 +192,14 @@ void UpdateOled()
     else if(uiScreen == UI_NEW_MENU)
     {
         NewMenuDraw();
+    }
+    else if(uiScreen == UI_PATTERNS_MENU)
+    {
+        PatternsMenuDraw();
+    }
+    else if(uiScreen == UI_PATTERN_ORDER_MENU)
+    {
+        PatternOrderDraw();
     }
     else
     {

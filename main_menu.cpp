@@ -5,6 +5,7 @@
 #include "save_menu.h"
 #include "load_menu.h"
 #include "new_menu.h"
+#include "patterns_menu.h"
 
 static const int kMainMenuCount = 9;
 
@@ -13,7 +14,7 @@ static const char* kMainMenuLabels[kMainMenuCount] = {
     "CV1",
     "CV2",
     "CV3",
-    "CV4",
+    "Patterns",
     "Save",
     "Load",
     "New",
@@ -40,10 +41,15 @@ void MainMenuProcessEncoder()
         {
             uiScreen = UI_EDIT_SEQUENCE;
         }
-        else if(mainMenuIndex >= 1 && mainMenuIndex <= 4)
+        else if(mainMenuIndex >= 1 && mainMenuIndex <= 3)
         {
             CvMenuEnter(mainMenuIndex - 1);
             uiScreen = UI_CV_MENU;
+        }
+        else if(mainMenuIndex == 4)
+        {
+            PatternsMenuEnter();
+            uiScreen = UI_PATTERNS_MENU;
         }
         else if(mainMenuIndex == 5)
         {
@@ -69,7 +75,7 @@ void MainMenuDraw()
 
     char orig[kSeqLength + 2];
     char mod[kSeqLength + 2];
-    BuildSequenceString(orig);
+    BuildBaselineSequenceString(orig);
     BuildModifiedSequenceString(mod);
 
     DrawSequenceString(20, orig, -1, true);

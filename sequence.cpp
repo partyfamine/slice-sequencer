@@ -1,4 +1,5 @@
 #include "app.h"
+#include "patterns.h"
 #include <cmath>
 #include <stdint.h>
 
@@ -11,8 +12,9 @@ int stepNumber;
 int modNoteOrder[kSeqLength];
 int modNoteLength[kSeqLength];
 int modNumNotes;
+int modSrcTag[kSeqLength];
 
-CvChannel cvChannels[4];
+CvChannel cvChannels[kNumCvControls];
 
 volatile int kickGateSamples;
 volatile int snareGateSamples;
@@ -25,7 +27,7 @@ static int     savedNumNotes;
 
 void InitCvChannels()
 {
-    for(int i = 0; i < 4; i++)
+    for(int i = 0; i < kNumCvControls; i++)
     {
         cvChannels[i].type     = CV_TYPE_SHIFT;
         cvChannels[i].position = 0;
@@ -35,16 +37,17 @@ void InitCvChannels()
 
 void ClampCvPositions()
 {
-    for(int i = 0; i < 4; i++)
+    int count = ActiveNoteCount();
+    for(int i = 0; i < kNumCvControls; i++)
     {
-        if(numNotes <= 0)
+        if(count <= 0)
         {
             cvChannels[i].position = 0;
             continue;
         }
-        if(cvChannels[i].position >= numNotes)
+        if(cvChannels[i].position >= count)
         {
-            cvChannels[i].position = numNotes - 1;
+            cvChannels[i].position = count - 1;
         }
         if(cvChannels[i].position < 0)
         {
@@ -122,9 +125,103 @@ void BuildSequenceString(char* seq)
     BuildSequenceStringFrom(noteLength, numNotes, nullptr, seq);
 }
 
+static const int* rebuildOrder = nullptr;
+static const int* rebuildLens  = nullptr;
+static int        rebuildCount = 0;
+
+void SetRebuildBaseline(const int* order, const int* lengths, int count)
+{
+    rebuildOrder = order;
+    rebuildLens  = lengths;
+    rebuildCount = count;
+}
+
+void ClearRebuildBaseline()
+{
+    rebuildOrder = nullptr;
+    rebuildLens  = nullptr;
+    rebuildCount = 0;
+}
+
+int ActiveNoteCount()
+{
+    return rebuildLens ? rebuildCount : numNotes;
+}
+
+int ActiveNoteStartBeat(int note)
+{
+    const int* lens = rebuildLens ? rebuildLens : noteLength;
+    int        pos  = 0;
+    for(int n = 0; n < note; n++)
+    {
+        pos += lens[n];
+    }
+    return pos;
+}
+
+int ActiveBeatToNote(int beat)
+{
+    const int* lens  = rebuildLens ? rebuildLens : noteLength;
+    int        count = ActiveNoteCount();
+    int        pos   = 0;
+    for(int n = 0; n < count; n++)
+    {
+        pos += lens[n];
+        if(beat < pos)
+        {
+            return n;
+        }
+    }
+    return count > 0 ? count - 1 : 0;
+}
+
+bool ActiveNoteIntersectsSegment(int note, int startBeat, int endBeat)
+{
+    const int* lens   = rebuildLens ? rebuildLens : noteLength;
+    int        nStart = ActiveNoteStartBeat(note);
+    int        nEnd   = nStart + lens[note];
+    return nStart < endBeat && nEnd > startBeat;
+}
+
 void BuildModifiedSequenceString(char* seq)
 {
     BuildSequenceStringFrom(modNoteLength, modNumNotes, modNoteOrder, seq);
+}
+
+void BuildBaselineSequenceString(char* seq)
+{
+    if(rebuildLens)
+    {
+        BuildSequenceStringFrom(rebuildLens, rebuildCount, rebuildOrder, seq);
+    }
+    else
+    {
+        BuildSequenceString(seq);
+    }
+}
+
+int RemapBaselinePosition(int oldPosition)
+{
+    if(modNumNotes <= 0)
+    {
+        return 0;
+    }
+    for(int i = 0; i < modNumNotes; i++)
+    {
+        if(modSrcTag[i] == oldPosition)
+        {
+            return i;
+        }
+    }
+    if(oldPosition < 0)
+    {
+        return 0;
+    }
+    if(oldPosition >= modNumNotes)
+    {
+        return modNumNotes - 1;
+    }
+    return oldPosition;
 }
 
 uint16_t CvForNote(int note)
@@ -139,7 +236,8 @@ uint16_t CvForLength(int length)
 
 void GetSegmentRange(int position, int size, int* startBeat, int* endBeat)
 {
-    if(numNotes <= 0 || totalSteps <= 0)
+    int count = ActiveNoteCount();
+    if(count <= 0 || totalSteps <= 0)
     {
         *startBeat = 0;
         *endBeat   = 0;
@@ -149,9 +247,9 @@ void GetSegmentRange(int position, int size, int* startBeat, int* endBeat)
     {
         position = 0;
     }
-    if(position >= numNotes)
+    if(position >= count)
     {
-        position = numNotes - 1;
+        position = count - 1;
     }
     if(size < 1)
     {
@@ -169,7 +267,7 @@ void GetSegmentRange(int position, int size, int* startBeat, int* endBeat)
         return;
     }
 
-    *startBeat = NoteStartBeat(position);
+    *startBeat = ActiveNoteStartBeat(position);
     *endBeat   = *startBeat + size;
     if(*endBeat > totalSteps)
     {
@@ -179,9 +277,7 @@ void GetSegmentRange(int position, int size, int* startBeat, int* endBeat)
 
 bool NoteIntersectsSegment(int note, int startBeat, int endBeat)
 {
-    int nStart = NoteStartBeat(note);
-    int nEnd   = nStart + noteLength[note];
-    return nStart < endBeat && nEnd > startBeat;
+    return ActiveNoteIntersectsSegment(note, startBeat, endBeat);
 }
 
 int ModNoteStartBeat(int modNote)
@@ -221,11 +317,12 @@ static void MarkSegmentNotes(int position, int size, bool* inSeg)
 {
     int startBeat, endBeat;
     GetSegmentRange(position, size, &startBeat, &endBeat);
-    for(int n = 0; n < numNotes; n++)
+    int count = ActiveNoteCount();
+    for(int n = 0; n < count; n++)
     {
-        inSeg[n] = NoteIntersectsSegment(n, startBeat, endBeat);
+        inSeg[n] = ActiveNoteIntersectsSegment(n, startBeat, endBeat);
     }
-    for(int n = numNotes; n < kSeqLength; n++)
+    for(int n = count; n < kSeqLength; n++)
     {
         inSeg[n] = false;
     }
@@ -335,9 +432,9 @@ static int FillFromOriginal(int sourceNote,
     return outCount;
 }
 
-static int OtherSegmentId(int noteId, const bool segNotes[4][kSeqLength], int selfCv)
+static int OtherSegmentId(int noteId, const bool segNotes[kNumCvControls][kSeqLength], int selfCv)
 {
-    for(int c = 0; c < 4; c++)
+    for(int c = 0; c < kNumCvControls; c++)
     {
         if(c == selfCv)
         {
@@ -351,14 +448,18 @@ static int OtherSegmentId(int noteId, const bool segNotes[4][kSeqLength], int se
     return -1;
 }
 
-static bool cvModified[4];
+static bool cvModified[kNumCvControls];
 
-static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countInOut)
+static void ApplyShifts(int*     order,
+                        int*     lengths,
+                        uint8_t* segFlags,
+                        int*     srcTag,
+                        int*     countInOut)
 {
     int count = *countInOut;
 
-    bool segNotes[4][kSeqLength];
-    for(int c = 0; c < 4; c++)
+    bool segNotes[kNumCvControls][kSeqLength];
+    for(int c = 0; c < kNumCvControls; c++)
     {
         cvModified[c] = false;
         for(int n = 0; n < kSeqLength; n++)
@@ -372,7 +473,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         }
     }
 
-    for(int c = 0; c < 4; c++)
+    for(int c = 0; c < kNumCvControls; c++)
     {
         if(cvChannels[c].type != CV_TYPE_SHIFT || count <= 0)
         {
@@ -384,7 +485,8 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         int   blockEnd   = -1;
         for(int i = 0; i < count; i++)
         {
-            if(inSeg[order[i]])
+            int tag = srcTag[i];
+            if(tag >= 0 && inSeg[tag])
             {
                 if(blockStart < 0)
                 {
@@ -402,11 +504,12 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         int leftCount = 0;
         for(int i = 0; i < blockStart;)
         {
-            int segId = OtherSegmentId(order[i], segNotes, c);
+            int segId = OtherSegmentId(srcTag[i], segNotes, c);
             int j     = i + 1;
             if(segId >= 0)
             {
-                while(j < blockStart && segNotes[segId][order[j]])
+                while(j < blockStart && srcTag[j] >= 0
+                      && segNotes[segId][srcTag[j]])
                 {
                     j++;
                 }
@@ -419,11 +522,12 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         int rightCount = 0;
         for(int i = blockEnd + 1; i < count;)
         {
-            int segId = OtherSegmentId(order[i], segNotes, c);
+            int segId = OtherSegmentId(srcTag[i], segNotes, c);
             int j     = i + 1;
             if(segId >= 0)
             {
-                while(j < count && segNotes[segId][order[j]])
+                while(j < count && srcTag[j] >= 0
+                      && segNotes[segId][srcTag[j]])
                 {
                     j++;
                 }
@@ -443,11 +547,13 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         int blockLen = blockEnd - blockStart + 1;
         int blockNotes[kSeqLength];
         int blockLens[kSeqLength];
+        int blockTags[kSeqLength];
         uint8_t blockFlags[kSeqLength];
         for(int b = 0; b < blockLen; b++)
         {
             blockNotes[b] = order[blockStart + b];
             blockLens[b]  = lengths[blockStart + b];
+            blockTags[b]  = srcTag[blockStart + b];
             blockFlags[b] = segFlags[blockStart + b];
         }
 
@@ -463,6 +569,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
 
         int     newOrder[kSeqLength];
         int     newLens[kSeqLength];
+        int     newTags[kSeqLength];
         uint8_t newFlags[kSeqLength];
         int     out      = 0;
         int     unitIdx  = 0;
@@ -477,6 +584,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
                 {
                     newOrder[out] = blockNotes[b];
                     newLens[out]  = blockLens[b];
+                    newTags[out]  = blockTags[b];
                     newFlags[out] = blockFlags[b];
                     out++;
                 }
@@ -486,6 +594,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
             {
                 newOrder[out] = order[k];
                 newLens[out]  = lengths[k];
+                newTags[out]  = srcTag[k];
                 newFlags[out] = segFlags[k];
                 out++;
             }
@@ -502,6 +611,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
                 {
                     newOrder[out] = blockNotes[b];
                     newLens[out]  = blockLens[b];
+                    newTags[out]  = blockTags[b];
                     newFlags[out] = blockFlags[b];
                     out++;
                 }
@@ -511,6 +621,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
             {
                 newOrder[out] = order[k];
                 newLens[out]  = lengths[k];
+                newTags[out]  = srcTag[k];
                 newFlags[out] = segFlags[k];
                 out++;
             }
@@ -524,6 +635,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
             {
                 newOrder[out] = blockNotes[b];
                 newLens[out]  = blockLens[b];
+                newTags[out]  = blockTags[b];
                 newFlags[out] = blockFlags[b];
                 out++;
             }
@@ -533,6 +645,7 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
         {
             order[k]    = newOrder[k];
             lengths[k]  = newLens[k];
+            srcTag[k]   = newTags[k];
             segFlags[k] = newFlags[k];
         }
     }
@@ -543,16 +656,12 @@ static void ApplyShifts(int* order, int* lengths, uint8_t* segFlags, int* countI
 static void ApplyTransposes(int*     order,
                             int*     lengths,
                             uint8_t* segFlags,
+                            int*     srcTag,
                             int*     countInOut)
 {
     int count = *countInOut;
-    int originTag[kSeqLength];
-    for(int i = 0; i < count; i++)
-    {
-        originTag[i] = order[i];
-    }
 
-    for(int c = 0; c < 4; c++)
+    for(int c = 0; c < kNumCvControls; c++)
     {
         if(cvChannels[c].type != CV_TYPE_TRANSPOSE || count <= 0)
         {
@@ -580,24 +689,25 @@ static void ApplyTransposes(int*     order,
         int     i   = 0;
         while(i < count)
         {
-            int tag = originTag[i];
+            int tag = srcTag[i];
             if(tag < 0 || !inSeg[tag])
             {
                 newOrder[out] = order[i];
                 newLens[out]  = lengths[i];
-                newTags[out]  = originTag[i];
+                newTags[out]  = srcTag[i];
                 newFlags[out] = segFlags[i];
                 out++;
                 i++;
                 continue;
             }
 
-            int     runFirst = tag;
+            // Transpose relative to the original sequence note ID.
+            int     runFirst = order[i];
             int     runSteps = 0;
             uint8_t runFlags = 0;
             while(i < count)
             {
-                tag = originTag[i];
+                tag = srcTag[i];
                 if(tag < 0 || !inSeg[tag])
                 {
                     break;
@@ -625,10 +735,10 @@ static void ApplyTransposes(int*     order,
         count = out;
         for(int k = 0; k < count; k++)
         {
-            order[k]     = newOrder[k];
-            lengths[k]   = newLens[k];
-            originTag[k] = newTags[k];
-            segFlags[k]  = newFlags[k];
+            order[k]    = newOrder[k];
+            lengths[k]  = newLens[k];
+            srcTag[k]   = newTags[k];
+            segFlags[k] = newFlags[k];
         }
     }
 
@@ -638,10 +748,12 @@ static void ApplyTransposes(int*     order,
 static void ExpandToSteps(const int*     order,
                           const int*     lengths,
                           const uint8_t* segFlags,
+                          const int*     srcTag,
                           int            count,
                           int*           stepNote,
                           bool*          stepStart,
                           uint8_t*       stepFlags,
+                          int*           stepTag,
                           int*           nStepsOut)
 {
     int nSteps = 0;
@@ -656,6 +768,7 @@ static void ExpandToSteps(const int*     order,
             stepNote[nSteps]  = order[i];
             stepStart[nSteps] = (t == 0);
             stepFlags[nSteps] = segFlags[i];
+            stepTag[nSteps]   = srcTag[i];
             nSteps++;
         }
     }
@@ -664,9 +777,11 @@ static void ExpandToSteps(const int*     order,
 
 static void CollapseFromSteps(const int*  stepNote,
                               const bool* stepStart,
+                              const int*  stepTag,
                               int         nSteps,
                               int*        order,
                               int*        lengths,
+                              int*        srcTag,
                               int*        countOut)
 {
     int count = 0;
@@ -674,6 +789,7 @@ static void CollapseFromSteps(const int*  stepNote,
     while(i < nSteps)
     {
         int id  = stepNote[i];
+        int tag = stepTag[i];
         int len = 1;
         i++;
         while(i < nSteps && !stepStart[i])
@@ -683,12 +799,17 @@ static void CollapseFromSteps(const int*  stepNote,
         }
         order[count]   = id;
         lengths[count] = len;
+        srcTag[count]  = tag;
         count++;
     }
     *countOut = count;
 }
 
-static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* countInOut)
+static void ApplyRepeats(int*     order,
+                         int*     lengths,
+                         uint8_t* segFlags,
+                         int*     srcTag,
+                         int*     countInOut)
 {
     int count = *countInOut;
     if(count <= 0 || totalSteps <= 0)
@@ -699,9 +820,18 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
     int     stepNote[kSeqLength];
     bool    stepStart[kSeqLength];
     uint8_t stepFlags[kSeqLength];
+    int     stepTag[kSeqLength];
     int     nSteps = 0;
-    ExpandToSteps(
-        order, lengths, segFlags, count, stepNote, stepStart, stepFlags, &nSteps);
+    ExpandToSteps(order,
+                  lengths,
+                  segFlags,
+                  srcTag,
+                  count,
+                  stepNote,
+                  stepStart,
+                  stepFlags,
+                  stepTag,
+                  &nSteps);
     if(nSteps <= 0)
     {
         return;
@@ -713,7 +843,7 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
     {
         stepProtected[s]   = false;
         stepRepeatOwned[s] = false;
-        for(int c = 0; c < 4; c++)
+        for(int c = 0; c < kNumCvControls; c++)
         {
             if(!cvModified[c])
             {
@@ -731,7 +861,7 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
         }
     }
 
-    for(int c = 0; c < 4; c++)
+    for(int c = 0; c < kNumCvControls; c++)
     {
         if(cvChannels[c].type != CV_TYPE_REPEAT)
         {
@@ -778,12 +908,14 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
                 continue;
             }
 
-            int patNote[kSeqLength];
+            int  patNote[kSeqLength];
             bool patStart[kSeqLength];
+            int  patTag[kSeqLength];
             for(int p = 0; p < patternLen; p++)
             {
                 patNote[p]  = stepNote[patternStart + p];
                 patStart[p] = stepStart[patternStart + p];
+                patTag[p]   = stepTag[patternStart + p];
             }
 
             int maxBefore = patternStart;
@@ -812,6 +944,7 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
                     }
                     stepNote[dest]        = patNote[src];
                     stepStart[dest]       = patStart[src] || forceStart;
+                    stepTag[dest]         = patTag[src];
                     stepRepeatOwned[dest] = true;
                     forceStart            = false;
                 }
@@ -832,6 +965,7 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
                     }
                     stepNote[dest]        = patNote[src];
                     stepStart[dest]       = patStart[src] || forceStart;
+                    stepTag[dest]         = patTag[src];
                     stepRepeatOwned[dest] = true;
                     forceStart            = false;
                 }
@@ -839,23 +973,25 @@ static void ApplyRepeats(int* order, int* lengths, uint8_t* segFlags, int* count
         }
     }
 
-    CollapseFromSteps(stepNote, stepStart, nSteps, order, lengths, countInOut);
+    CollapseFromSteps(
+        stepNote, stepStart, stepTag, nSteps, order, lengths, srcTag, countInOut);
 }
 
 void RebuildModifiedSequence()
 {
     int     order[kSeqLength];
     int     lengths[kSeqLength];
+    int     srcTag[kSeqLength];
     uint8_t segFlags[kSeqLength];
-    int     count = numNotes;
+    int     count = ActiveNoteCount();
 
-    for(int c = 0; c < 4; c++)
+    for(int c = 0; c < kNumCvControls; c++)
     {
         cvModified[c] = false;
     }
 
-    bool segNotes[4][kSeqLength];
-    for(int c = 0; c < 4; c++)
+    bool segNotes[kNumCvControls][kSeqLength];
+    for(int c = 0; c < kNumCvControls; c++)
     {
         for(int n = 0; n < kSeqLength; n++)
         {
@@ -864,12 +1000,13 @@ void RebuildModifiedSequence()
         MarkSegmentNotes(cvChannels[c].position, cvChannels[c].size, segNotes[c]);
     }
 
-    for(int i = 0; i < numNotes; i++)
+    for(int i = 0; i < count; i++)
     {
-        order[i]    = i;
-        lengths[i]  = noteLength[i];
+        order[i]   = rebuildOrder ? rebuildOrder[i] : i;
+        lengths[i] = rebuildLens ? rebuildLens[i] : noteLength[i];
+        srcTag[i]  = i;
         segFlags[i] = 0;
-        for(int c = 0; c < 4; c++)
+        for(int c = 0; c < kNumCvControls; c++)
         {
             if(segNotes[c][i])
             {
@@ -878,15 +1015,16 @@ void RebuildModifiedSequence()
         }
     }
 
-    ApplyShifts(order, lengths, segFlags, &count);
-    ApplyTransposes(order, lengths, segFlags, &count);
-    ApplyRepeats(order, lengths, segFlags, &count);
+    ApplyShifts(order, lengths, segFlags, srcTag, &count);
+    ApplyTransposes(order, lengths, segFlags, srcTag, &count);
+    ApplyRepeats(order, lengths, segFlags, srcTag, &count);
 
     modNumNotes = count;
     for(int i = 0; i < count; i++)
     {
         modNoteOrder[i]  = order[i];
         modNoteLength[i] = lengths[i];
+        modSrcTag[i]     = srcTag[i];
     }
 }
 
@@ -1024,11 +1162,45 @@ void TriggerNoteAtStep(bool fireGate)
     {
         return;
     }
+
+    if(holdActive)
+    {
+        if(ModIsNoteStart(stepNumber))
+        {
+            holdActive    = false;
+            holdSilence   = false;
+            holdStepsLeft = 0;
+        }
+        else if(holdStepsLeft <= 0)
+        {
+            holdActive    = false;
+            holdSilence   = true;
+            holdStepsLeft = 0;
+            return;
+        }
+        else
+        {
+            cvValue  = CvForNote(holdNoteId);
+            lengthCv = CvForLength(holdStepsLeft);
+            holdStepsLeft--;
+            return;
+        }
+    }
+
+    if(holdSilence)
+    {
+        if(!ModIsNoteStart(stepNumber))
+        {
+            return;
+        }
+        holdSilence = false;
+    }
+
     int modNote = ModBeatToNote(stepNumber);
     int origId  = modNoteOrder[modNote];
     cvValue     = CvForNote(origId);
     lengthCv    = CvForLength(modNoteLength[modNote]);
-    if(fireGate)
+    if(fireGate && ModIsNoteStart(stepNumber))
     {
         trigOut = true;
         TriggerHitGates(origId);
@@ -1039,5 +1211,11 @@ void ResetToFirstStep()
 {
     stepNumber   = 0;
     pendingReset = false;
+    ClearPatternHold();
+    if(PatternSwitchPending())
+    {
+        ApplyPendingPatternSwitch(false, 0, 0);
+    }
+    RebuildModifiedSequenceForSlot(playPattern);
     TriggerNoteAtStep();
 }

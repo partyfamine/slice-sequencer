@@ -7,6 +7,7 @@ extern daisy::DaisyPatch patch;
 static const int  kSeqLength = 16;
 static const int  kMinSteps  = 2;
 static const int  kFontWidth = 7;
+static const int  kNumCvControls = 3;
 static const char kHex[]     = "0123456789ABCDEF";
 
 enum UiScreen
@@ -17,6 +18,8 @@ enum UiScreen
     UI_SAVE_MENU,
     UI_LOAD_MENU,
     UI_NEW_MENU,
+    UI_PATTERNS_MENU,
+    UI_PATTERN_ORDER_MENU,
 };
 
 enum CvType
@@ -60,7 +63,7 @@ extern bool     pendingReset;
 extern uint16_t cvValue;
 extern uint16_t lengthCv;
 
-extern CvChannel cvChannels[4];
+extern CvChannel cvChannels[kNumCvControls];
 
 extern int modNoteOrder[kSeqLength];
 extern int modNoteLength[kSeqLength];
@@ -99,3 +102,11 @@ int  ModNoteStartBeat(int modNote);
 int  ModBeatToNote(int beat);
 bool ModIsNoteStart(int beat);
 void BuildModifiedSequenceString(char* seq);
+void BuildBaselineSequenceString(char* seq);
+int  RemapBaselinePosition(int oldPosition);
+void SetRebuildBaseline(const int* order, const int* lengths, int count);
+void ClearRebuildBaseline(); // use original identity sequence
+int  ActiveNoteCount();
+int  ActiveNoteStartBeat(int note);
+int  ActiveBeatToNote(int beat);
+bool ActiveNoteIntersectsSegment(int note, int startBeat, int endBeat);
