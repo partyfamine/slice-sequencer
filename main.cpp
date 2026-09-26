@@ -28,6 +28,25 @@ void UpdateControls();
 void UpdateOled();
 void UpdateOutputs();
 
+struct ScreenHandlers
+{
+    void (*process)();
+    void (*draw)();
+};
+
+// Indexed by UiScreen — keep in sync with the enum in ui.h.
+static const ScreenHandlers kScreenHandlers[] = {
+    {MainMenuProcessEncoder, MainMenuDraw},             // UI_MAIN_MENU
+    {EditSequenceProcessEncoder, EditSequenceDraw},     // UI_EDIT_SEQUENCE
+    {CvMenuProcessEncoder, CvMenuDraw},                 // UI_CV_MENU
+    {SaveMenuProcessEncoder, SaveMenuDraw},             // UI_SAVE_MENU
+    {LoadMenuProcessEncoder, LoadMenuDraw},             // UI_LOAD_MENU
+    {NewMenuProcessEncoder, NewMenuDraw},               // UI_NEW_MENU
+    {PatternsMenuProcessEncoder, PatternsMenuDraw},     // UI_PATTERNS_MENU
+    {PatternOrderProcessEncoder, PatternOrderDraw},     // UI_PATTERN_ORDER_MENU
+    {SettingsMenuProcessEncoder, SettingsMenuDraw},     // UI_SETTINGS_MENU
+};
+
 static void AudioCallback(AudioHandle::InputBuffer  in,
                           AudioHandle::OutputBuffer out,
                           size_t                    size)
@@ -87,42 +106,7 @@ void UpdateControls()
     patch.ProcessAnalogControls();
     patch.ProcessDigitalControls();
 
-    if(uiScreen == UI_EDIT_SEQUENCE)
-    {
-        EditSequenceProcessEncoder();
-    }
-    else if(uiScreen == UI_CV_MENU)
-    {
-        CvMenuProcessEncoder();
-    }
-    else if(uiScreen == UI_SAVE_MENU)
-    {
-        SaveMenuProcessEncoder();
-    }
-    else if(uiScreen == UI_LOAD_MENU)
-    {
-        LoadMenuProcessEncoder();
-    }
-    else if(uiScreen == UI_NEW_MENU)
-    {
-        NewMenuProcessEncoder();
-    }
-    else if(uiScreen == UI_PATTERNS_MENU)
-    {
-        PatternsMenuProcessEncoder();
-    }
-    else if(uiScreen == UI_PATTERN_ORDER_MENU)
-    {
-        PatternOrderProcessEncoder();
-    }
-    else if(uiScreen == UI_SETTINGS_MENU)
-    {
-        SettingsMenuProcessEncoder();
-    }
-    else
-    {
-        MainMenuProcessEncoder();
-    }
+    kScreenHandlers[uiScreen].process();
 
     UpdatePatternSelectionFromCv();
 
@@ -177,44 +161,7 @@ void UpdateControls()
 void UpdateOled()
 {
     patch.display.Fill(false);
-
-    if(uiScreen == UI_EDIT_SEQUENCE)
-    {
-        EditSequenceDraw();
-    }
-    else if(uiScreen == UI_CV_MENU)
-    {
-        CvMenuDraw();
-    }
-    else if(uiScreen == UI_SAVE_MENU)
-    {
-        SaveMenuDraw();
-    }
-    else if(uiScreen == UI_LOAD_MENU)
-    {
-        LoadMenuDraw();
-    }
-    else if(uiScreen == UI_NEW_MENU)
-    {
-        NewMenuDraw();
-    }
-    else if(uiScreen == UI_PATTERNS_MENU)
-    {
-        PatternsMenuDraw();
-    }
-    else if(uiScreen == UI_PATTERN_ORDER_MENU)
-    {
-        PatternOrderDraw();
-    }
-    else if(uiScreen == UI_SETTINGS_MENU)
-    {
-        SettingsMenuDraw();
-    }
-    else
-    {
-        MainMenuDraw();
-    }
-
+    kScreenHandlers[uiScreen].draw();
     patch.display.Update();
 }
 
