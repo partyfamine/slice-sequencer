@@ -1,4 +1,6 @@
 #include "patterns.h"
+#include "sequence.h"
+#include "cv.h"
 
 int         selectedPattern;
 int         playPattern;

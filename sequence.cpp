@@ -1,4 +1,5 @@
-#include "app.h"
+#include "sequence.h"
+#include "cv.h"
 #include "patterns.h"
 #include <cmath>
 #include <stdint.h>

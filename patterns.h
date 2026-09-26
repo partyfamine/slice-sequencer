@@ -1,5 +1,5 @@
 #pragma once
-#include "app.h"
+#include "types.h"
 
 static const int kMaxUserPatterns = 15;
 
