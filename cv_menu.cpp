@@ -29,6 +29,7 @@ static const char* TypeName(CvType t)
     {
         case CV_TYPE_TRANSPOSE: return "Transpose";
         case CV_TYPE_REPEAT: return "Repeat";
+        case CV_TYPE_DISABLED: return "Disabled";
         case CV_TYPE_SHIFT:
         default: return "Shift";
     }

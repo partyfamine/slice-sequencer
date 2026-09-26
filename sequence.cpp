@@ -29,7 +29,7 @@ void InitCvChannels()
 {
     for(int i = 0; i < kNumCvControls; i++)
     {
-        cvChannels[i].type     = CV_TYPE_SHIFT;
+        cvChannels[i].type     = CV_TYPE_DISABLED;
         cvChannels[i].position = 0;
         cvChannels[i].size     = 1;
     }
@@ -997,7 +997,11 @@ void RebuildModifiedSequence()
         {
             segNotes[c][n] = false;
         }
-        MarkSegmentNotes(cvChannels[c].position, cvChannels[c].size, segNotes[c]);
+        if(cvChannels[c].type != CV_TYPE_DISABLED)
+        {
+            MarkSegmentNotes(
+                cvChannels[c].position, cvChannels[c].size, segNotes[c]);
+        }
     }
 
     for(int i = 0; i < count; i++)

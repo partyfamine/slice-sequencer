@@ -175,7 +175,7 @@ static void LoadCvChannel(CvChannel* dst, uint8_t type, uint8_t position, uint8_
 {
     if(type >= CV_TYPE_LAST)
     {
-        dst->type = CV_TYPE_SHIFT;
+        dst->type = CV_TYPE_DISABLED;
     }
     else
     {

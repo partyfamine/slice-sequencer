@@ -27,6 +27,7 @@ enum CvType
     CV_TYPE_SHIFT = 0,
     CV_TYPE_TRANSPOSE,
     CV_TYPE_REPEAT,
+    CV_TYPE_DISABLED,
     CV_TYPE_LAST,
 };
 
