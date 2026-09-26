@@ -1,7 +1,7 @@
 TARGET = slice-sequencer
 
 # Sources
-CPP_SOURCES = ./main.cpp ./sequence.cpp ./oled_ui.cpp ./main_menu.cpp ./edit_sequence.cpp ./cv_menu.cpp ./storage.cpp ./save_menu.cpp ./load_menu.cpp ./new_menu.cpp ./patterns.cpp ./patterns_menu.cpp ./settings_menu.cpp
+CPP_SOURCES = ./main.cpp ./sequence.cpp ./cv_mods.cpp ./playback.cpp ./oled_ui.cpp ./main_menu.cpp ./edit_sequence.cpp ./cv_menu.cpp ./storage.cpp ./save_menu.cpp ./load_menu.cpp ./new_menu.cpp ./patterns.cpp ./patterns_menu.cpp ./settings_menu.cpp
 
 # Enable FatFS middleware for SD card save/load
 USE_FATFS = 1
