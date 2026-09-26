@@ -20,6 +20,7 @@ enum UiScreen
     UI_NEW_MENU,
     UI_PATTERNS_MENU,
     UI_PATTERN_ORDER_MENU,
+    UI_SETTINGS_MENU,
 };
 
 enum CvType
@@ -29,6 +30,13 @@ enum CvType
     CV_TYPE_REPEAT,
     CV_TYPE_DISABLED,
     CV_TYPE_LAST,
+};
+
+enum SliceOutMode
+{
+    SLICE_OUT_NOTE = 0,
+    SLICE_OUT_STEP,
+    SLICE_OUT_LAST,
 };
 
 struct CvChannel
@@ -65,6 +73,8 @@ extern uint16_t cvValue;
 extern uint16_t lengthCv;
 
 extern CvChannel cvChannels[kNumCvControls];
+
+extern SliceOutMode sliceOutMode;
 
 extern int modNoteOrder[kSeqLength];
 extern int modNoteLength[kSeqLength];

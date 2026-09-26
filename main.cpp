@@ -8,6 +8,7 @@
 #include "load_menu.h"
 #include "new_menu.h"
 #include "patterns_menu.h"
+#include "settings_menu.h"
 #include "patterns.h"
 #include "storage.h"
 
@@ -114,6 +115,10 @@ void UpdateControls()
     {
         PatternOrderProcessEncoder();
     }
+    else if(uiScreen == UI_SETTINGS_MENU)
+    {
+        SettingsMenuProcessEncoder();
+    }
     else
     {
         MainMenuProcessEncoder();
@@ -200,6 +205,10 @@ void UpdateOled()
     else if(uiScreen == UI_PATTERN_ORDER_MENU)
     {
         PatternOrderDraw();
+    }
+    else if(uiScreen == UI_SETTINGS_MENU)
+    {
+        SettingsMenuDraw();
     }
     else
     {

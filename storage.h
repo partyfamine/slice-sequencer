@@ -16,6 +16,9 @@ bool LoadSequence(const char* name);
 bool LoadLastSequence();
 void ResetToNewSequence();
 
+bool LoadGlobalSettings();
+bool SaveGlobalSettings();
+
 int  ListSavedSequences(char names[][kMaxSeqNameLen + 1], int maxNames);
 void RefreshSavedSequenceList();
 int  GetSavedSequenceCount();

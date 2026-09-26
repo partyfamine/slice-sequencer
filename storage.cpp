@@ -53,8 +53,19 @@ struct PatternFileEntry
 
 static SeqFileData fileData;
 
-static const char* kSeqDir   = "seq";
-static const char* kLastPath = "seq/last.txt";
+static const char* kSeqDir      = "seq";
+static const char* kLastPath    = "seq/last.txt";
+static const char* kSettingsPath = "seq/settings.bin";
+
+#pragma pack(push, 1)
+struct GlobalSettingsFile
+{
+    char    magic[4];
+    uint8_t version;
+    uint8_t sliceOut;
+    uint8_t reserved[2];
+};
+#pragma pack(pop)
 
 static bool IsValidNameChar(char c)
 {
@@ -240,6 +251,7 @@ bool InitStorage()
 
     f_mkdir(kSeqDir);
     storageReady = true;
+    LoadGlobalSettings();
     RefreshSavedSequenceList();
     return true;
 }
@@ -247,6 +259,81 @@ bool InitStorage()
 bool StorageReady()
 {
     return storageReady;
+}
+
+bool LoadGlobalSettings()
+{
+    sliceOutMode = SLICE_OUT_NOTE;
+    if(!storageReady)
+    {
+        return false;
+    }
+
+    if(f_open(&file, kSettingsPath, FA_READ) != FR_OK)
+    {
+        return false;
+    }
+
+    GlobalSettingsFile data;
+    memset(&data, 0, sizeof(data));
+    UINT    bytes_read = 0;
+    FRESULT read_res
+        = f_read(&file, &data, sizeof(data), &bytes_read);
+    f_close(&file);
+
+    if(read_res != FR_OK || bytes_read < sizeof(data))
+    {
+        return false;
+    }
+    if(data.magic[0] != 'S' || data.magic[1] != 'L'
+       || data.magic[2] != 'S' || data.magic[3] != 'T')
+    {
+        return false;
+    }
+    if(data.version != 1)
+    {
+        return false;
+    }
+    if(data.sliceOut >= SLICE_OUT_LAST)
+    {
+        sliceOutMode = SLICE_OUT_NOTE;
+    }
+    else
+    {
+        sliceOutMode = (SliceOutMode)data.sliceOut;
+    }
+    return true;
+}
+
+bool SaveGlobalSettings()
+{
+    if(!storageReady)
+    {
+        return false;
+    }
+
+    f_mkdir(kSeqDir);
+
+    GlobalSettingsFile data;
+    memset(&data, 0, sizeof(data));
+    data.magic[0]  = 'S';
+    data.magic[1]  = 'L';
+    data.magic[2]  = 'S';
+    data.magic[3]  = 'T';
+    data.version   = 1;
+    data.sliceOut  = (uint8_t)sliceOutMode;
+
+    if(f_open(&file, kSettingsPath, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK)
+    {
+        return false;
+    }
+
+    UINT    bytes_written = 0;
+    FRESULT write_res
+        = f_write(&file, &data, sizeof(data), &bytes_written);
+    FRESULT close_res = f_close(&file);
+    return write_res == FR_OK && close_res == FR_OK
+           && bytes_written == sizeof(data);
 }
 
 void RefreshSavedSequenceList()

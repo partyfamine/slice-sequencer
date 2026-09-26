@@ -16,6 +16,8 @@ int modSrcTag[kSeqLength];
 
 CvChannel cvChannels[kNumCvControls];
 
+SliceOutMode sliceOutMode = SLICE_OUT_NOTE;
+
 volatile int kickGateSamples;
 volatile int snareGateSamples;
 
@@ -226,6 +228,20 @@ int RemapBaselinePosition(int oldPosition)
 
 uint16_t CvForNote(int note)
 {
+    if(sliceOutMode == SLICE_OUT_STEP)
+    {
+        if(totalSteps <= 0)
+        {
+            return 0;
+        }
+        int start = NoteStartBeat(note);
+        return (uint16_t)round(start * (4096.0 / (double)totalSteps));
+    }
+
+    if(numNotes <= 0)
+    {
+        return 0;
+    }
     return (uint16_t)round(note * (4096.0 / (double)numNotes));
 }
 

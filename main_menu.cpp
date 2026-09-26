@@ -6,6 +6,7 @@
 #include "load_menu.h"
 #include "new_menu.h"
 #include "patterns_menu.h"
+#include "settings_menu.h"
 
 static const int kMainMenuCount = 9;
 
@@ -18,7 +19,7 @@ static const char* kMainMenuLabels[kMainMenuCount] = {
     "Save",
     "Load",
     "New",
-    "Settings (TODO)",
+    "Settings",
 };
 
 static int mainMenuIndex;
@@ -65,6 +66,11 @@ void MainMenuProcessEncoder()
         {
             NewMenuEnter();
             uiScreen = UI_NEW_MENU;
+        }
+        else if(mainMenuIndex == 8)
+        {
+            SettingsMenuEnter();
+            uiScreen = UI_SETTINGS_MENU;
         }
     }
 }
