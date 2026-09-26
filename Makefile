@@ -1,7 +1,26 @@
 TARGET = slice-sequencer
 
 # Sources
-CPP_SOURCES = ./main.cpp ./sequence.cpp ./cv_mods.cpp ./playback.cpp ./oled_ui.cpp ./main_menu.cpp ./edit_sequence.cpp ./cv_menu.cpp ./storage_fs.cpp ./storage_seq.cpp ./save_menu.cpp ./load_menu.cpp ./new_menu.cpp ./patterns.cpp ./patterns_menu.cpp ./settings_menu.cpp
+CPP_SOURCES = \
+./src/main.cpp \
+./src/core/sequence.cpp \
+./src/core/cv_mods.cpp \
+./src/core/playback.cpp \
+./src/core/patterns.cpp \
+./src/ui/oled_ui.cpp \
+./src/ui/main_menu.cpp \
+./src/ui/edit_sequence.cpp \
+./src/ui/cv_menu.cpp \
+./src/ui/save_menu.cpp \
+./src/ui/load_menu.cpp \
+./src/ui/new_menu.cpp \
+./src/ui/patterns_menu.cpp \
+./src/ui/settings_menu.cpp \
+./src/storage/storage_fs.cpp \
+./src/storage/storage_seq.cpp
+
+# Short includes: #include "sequence.h" etc. (not ../core/...)
+C_INCLUDES += -Isrc/core -Isrc/ui -Isrc/storage
 
 # Enable FatFS middleware for SD card save/load
 USE_FATFS = 1
