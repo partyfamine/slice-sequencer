@@ -28,6 +28,13 @@ void UpdateControls();
 void UpdateOled();
 void UpdateOutputs();
 
+// Invariant: display follows selectedPattern; audio follows playPattern until
+// the next clock step (when a pending switch may apply). UpdateDisplayModel
+// keeps the OLED/CV-edit view in sync with selectedPattern; AdvanceClock
+// advances playback from playPattern.
+static void UpdateDisplayModel();
+static void AdvanceClock();
+
 struct ScreenHandlers
 {
     void (*process)();
@@ -46,6 +53,44 @@ static const ScreenHandlers kScreenHandlers[] = {
     {PatternOrderProcessEncoder, PatternOrderDraw},     // UI_PATTERN_ORDER_MENU
     {SettingsMenuProcessEncoder, SettingsMenuDraw},     // UI_SETTINGS_MENU
 };
+
+static void UpdateDisplayModel()
+{
+    UpdatePatternSelectionFromCv();
+    StoreWorkingCvToSlot(selectedPattern);
+    RebuildModifiedSequenceForSlot(selectedPattern);
+}
+
+static void AdvanceClock()
+{
+    if(pendingReset)
+    {
+        ResetToFirstStep();
+        return;
+    }
+
+    bool midNote   = false;
+    int  holdId    = 0;
+    int  holdSteps = 0;
+    if(PatternSwitchPending())
+    {
+        CapturePatternSwitchHoldState(&midNote, &holdId, &holdSteps);
+    }
+
+    stepNumber++;
+    stepNumber %= totalSteps;
+
+    if(PatternSwitchPending())
+    {
+        ApplyPendingPatternSwitch(midNote, holdId, holdSteps);
+    }
+
+    RebuildModifiedSequenceForSlot(playPattern);
+    TriggerNoteAtStep(ModIsNoteStart(stepNumber));
+
+    // Restore selected pattern for display.
+    RebuildModifiedSequenceForSlot(selectedPattern);
+}
 
 static void AudioCallback(AudioHandle::InputBuffer  in,
                           AudioHandle::OutputBuffer out,
@@ -108,11 +153,7 @@ void UpdateControls()
 
     kScreenHandlers[uiScreen].process();
 
-    UpdatePatternSelectionFromCv();
-
-    // Display uses the selected pattern; playback may lag until next step.
-    StoreWorkingCvToSlot(selectedPattern);
-    RebuildModifiedSequenceForSlot(selectedPattern);
+    UpdateDisplayModel();
 
     bool clock = patch.gate_input[0].Trig();
     bool reset = patch.gate_input[1].Trig();
@@ -127,34 +168,7 @@ void UpdateControls()
     }
     else if(clock)
     {
-        if(pendingReset)
-        {
-            ResetToFirstStep();
-        }
-        else
-        {
-            bool midNote   = false;
-            int  holdId    = 0;
-            int  holdSteps = 0;
-            if(PatternSwitchPending())
-            {
-                CapturePatternSwitchHoldState(&midNote, &holdId, &holdSteps);
-            }
-
-            stepNumber++;
-            stepNumber %= totalSteps;
-
-            if(PatternSwitchPending())
-            {
-                ApplyPendingPatternSwitch(midNote, holdId, holdSteps);
-            }
-
-            RebuildModifiedSequenceForSlot(playPattern);
-            TriggerNoteAtStep(ModIsNoteStart(stepNumber));
-
-            // Restore selected pattern for display.
-            RebuildModifiedSequenceForSlot(selectedPattern);
-        }
+        AdvanceClock();
     }
 }
 
