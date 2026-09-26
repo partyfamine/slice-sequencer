@@ -18,19 +18,13 @@ extern bool        patternSelectLocked;
 extern UserPattern userPatterns[kMaxUserPatterns];
 extern CvChannel   originalCv[kNumCvControls];
 
-extern int  holdNoteId;
-extern int  holdStepsLeft;
-extern bool holdActive;
-extern bool holdSilence;
-
 void InitPatterns();
 void SyncWorkingCvFromSlot(int slot);
 void StoreWorkingCvToSlot(int slot);
 int  PatternSlotCount(); // 1 + numUserPatterns
 int  PatternIndexFromCv(float amount);
 void UpdatePatternSelectionFromCv();
-void CapturePatternSwitchHoldState(bool* midNote, int* noteId, int* stepsLeft);
-void ApplyPendingPatternSwitch(bool midNote, int noteId, int stepsLeft);
+void ApplyPendingPatternSwitch(); // switches play slot only; hold is owned by playback
 bool AddPatternFromCurrent();
 bool DeleteSelectedPattern();
 void MoveUserPattern(int fromUserIndex, int toUserIndex);
@@ -39,5 +33,4 @@ void GetSlotBaseline(int slot, int* order, int* lengths, int* count);
 CvChannel* GetSlotCv(int slot);
 void RebuildModifiedSequenceForSlot(int slot);
 bool PatternSwitchPending();
-void ClearPatternHold();
 

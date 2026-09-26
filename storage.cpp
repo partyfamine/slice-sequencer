@@ -705,7 +705,7 @@ bool LoadSequence(const char* name)
 
     selectedPattern = 0;
     playPattern     = 0;
-    ClearPatternHold();
+    ClearPlaybackHold();
     SyncWorkingCvFromSlot(0);
     ClampCvPositions();
     stepNumber = 0;

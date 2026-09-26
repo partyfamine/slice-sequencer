@@ -41,6 +41,11 @@ void TriggerNoteAtStep(bool fireGate);
 void ResetToFirstStep();
 void TriggerHitGates(int noteId);
 
+// Pattern-switch hold (owned by playback; patterns only signals the switch).
+void ClearPlaybackHold();
+void CapturePatternSwitchHoldState(bool* midNote, int* noteId, int* stepsLeft);
+void ApplyHoldAfterPatternSwitch(bool midNote, int noteId, int stepsLeft);
+
 void RebuildModifiedSequence();
 int  ModNoteStartBeat(int modNote);
 int  ModBeatToNote(int beat);

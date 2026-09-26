@@ -82,7 +82,8 @@ static void AdvanceClock()
 
     if(PatternSwitchPending())
     {
-        ApplyPendingPatternSwitch(midNote, holdId, holdSteps);
+        ApplyPendingPatternSwitch();
+        ApplyHoldAfterPatternSwitch(midNote, holdId, holdSteps);
     }
 
     RebuildModifiedSequenceForSlot(playPattern);

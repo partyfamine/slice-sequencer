@@ -5,6 +5,12 @@
 
 static const int kAudioGateSamples = 480; // ~10ms at 48kHz
 
+// Mid-note hold across a pattern switch — owned here, not by patterns.
+static int  holdNoteId;
+static int  holdStepsLeft;
+static bool holdActive;
+static bool holdSilence;
+
 uint16_t CvForNote(int note)
 {
     if(sliceOutMode == SLICE_OUT_STEP)
@@ -27,6 +33,67 @@ uint16_t CvForNote(int note)
 uint16_t CvForLength(int length)
 {
     return (uint16_t)round((length - 1) * (4096.0 / 15.0));
+}
+
+void ClearPlaybackHold()
+{
+    holdActive    = false;
+    holdSilence   = false;
+    holdNoteId    = 0;
+    holdStepsLeft = 0;
+}
+
+void CapturePatternSwitchHoldState(bool* midNote, int* noteId, int* stepsLeft)
+{
+    *midNote   = false;
+    *noteId    = 0;
+    *stepsLeft = 0;
+
+    if(!PatternSwitchPending())
+    {
+        return;
+    }
+
+    RebuildModifiedSequenceForSlot(playPattern);
+    if(modNumNotes <= 0 || totalSteps <= 0)
+    {
+        return;
+    }
+
+    int note    = ModBeatToNote(stepNumber);
+    int noteEnd = ModNoteStartBeat(note) + modNoteLength[note];
+    int next    = (stepNumber + 1) % totalSteps;
+    if(next != 0 && next < noteEnd)
+    {
+        *midNote   = true;
+        *noteId    = modNoteOrder[note];
+        *stepsLeft = noteEnd - next;
+    }
+}
+
+void ApplyHoldAfterPatternSwitch(bool midNote, int noteId, int stepsLeft)
+{
+    if(!ModIsNoteStart(stepNumber))
+    {
+        if(midNote && stepsLeft > 0)
+        {
+            holdActive    = true;
+            holdSilence   = false;
+            holdNoteId    = noteId;
+            holdStepsLeft = stepsLeft;
+        }
+        else
+        {
+            holdActive    = false;
+            holdSilence   = true;
+            holdNoteId    = 0;
+            holdStepsLeft = 0;
+        }
+    }
+    else
+    {
+        ClearPlaybackHold();
+    }
 }
 
 void RefreshCvsFromCurrentStep()
@@ -127,10 +194,11 @@ void ResetToFirstStep()
 {
     stepNumber   = 0;
     pendingReset = false;
-    ClearPatternHold();
+    ClearPlaybackHold();
     if(PatternSwitchPending())
     {
-        ApplyPendingPatternSwitch(false, 0, 0);
+        ApplyPendingPatternSwitch();
+        ApplyHoldAfterPatternSwitch(false, 0, 0);
     }
     RebuildModifiedSequenceForSlot(playPattern);
     TriggerNoteAtStep();

@@ -9,11 +9,6 @@ bool        patternSelectLocked;
 UserPattern userPatterns[kMaxUserPatterns];
 CvChannel   originalCv[kNumCvControls];
 
-int  holdNoteId;
-int  holdStepsLeft;
-bool holdActive;
-bool holdSilence;
-
 static int  pendingPattern = -1;
 static bool pendingSwitch  = false;
 
@@ -57,10 +52,7 @@ void InitPatterns()
     patternSelectLocked = false;
     pendingPattern      = -1;
     pendingSwitch       = false;
-    holdActive          = false;
-    holdSilence         = false;
-    holdNoteId          = 0;
-    holdStepsLeft       = 0;
+    ClearPlaybackHold();
     for(int c = 0; c < kNumCvControls; c++)
     {
         originalCv[c] = cvChannels[c];
@@ -202,42 +194,7 @@ bool PatternSwitchPending()
     return pendingSwitch || (pendingPattern >= 0 && pendingPattern != playPattern);
 }
 
-void ClearPatternHold()
-{
-    holdActive    = false;
-    holdSilence   = false;
-    holdStepsLeft = 0;
-}
-
-void CapturePatternSwitchHoldState(bool* midNote, int* noteId, int* stepsLeft)
-{
-    *midNote   = false;
-    *noteId    = 0;
-    *stepsLeft = 0;
-
-    if(!PatternSwitchPending())
-    {
-        return;
-    }
-
-    RebuildModifiedSequenceForSlot(playPattern);
-    if(modNumNotes <= 0 || totalSteps <= 0)
-    {
-        return;
-    }
-
-    int note    = ModBeatToNote(stepNumber);
-    int noteEnd = ModNoteStartBeat(note) + modNoteLength[note];
-    int next    = (stepNumber + 1) % totalSteps;
-    if(next != 0 && next < noteEnd)
-    {
-        *midNote   = true;
-        *noteId    = modNoteOrder[note];
-        *stepsLeft = noteEnd - next;
-    }
-}
-
-void ApplyPendingPatternSwitch(bool midNote, int noteId, int stepsLeft)
+void ApplyPendingPatternSwitch()
 {
     if(!pendingSwitch && pendingPattern < 0)
     {
@@ -258,29 +215,6 @@ void ApplyPendingPatternSwitch(bool midNote, int noteId, int stepsLeft)
     pendingSwitch   = false;
 
     RebuildModifiedSequenceForSlot(playPattern);
-
-    if(!ModIsNoteStart(stepNumber))
-    {
-        if(midNote && stepsLeft > 0)
-        {
-            holdActive    = true;
-            holdSilence   = false;
-            holdNoteId    = noteId;
-            holdStepsLeft = stepsLeft;
-        }
-        else
-        {
-            holdActive    = false;
-            holdSilence   = true;
-            holdStepsLeft = 0;
-        }
-    }
-    else
-    {
-        holdActive    = false;
-        holdSilence   = false;
-        holdStepsLeft = 0;
-    }
 }
 
 bool AddPatternFromCurrent()
@@ -319,8 +253,7 @@ bool AddPatternFromCurrent()
     playPattern     = selectedPattern;
     pendingPattern  = -1;
     pendingSwitch   = false;
-    holdActive      = false;
-    holdSilence     = false;
+    ClearPlaybackHold();
     RebuildModifiedSequenceForSlot(selectedPattern);
     return true;
 }
@@ -358,8 +291,7 @@ bool DeleteSelectedPattern()
 
     pendingPattern = -1;
     pendingSwitch  = false;
-    holdActive     = false;
-    holdSilence    = false;
+    ClearPlaybackHold();
     RebuildModifiedSequenceForSlot(selectedPattern);
     return true;
 }
